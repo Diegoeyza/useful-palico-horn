@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.4.0"
+local VERSION = "0.4.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -978,6 +978,20 @@ end
 
 local counter_ticks = 0
 
+-- The otomo (and the right condition manager) only exist once the quest is
+-- running. Discovery in the hub finds a look-alike that never fires, so
+-- re-resolve on the quest transition and drop channels that stop answering.
+local function rediscover(reason)
+    local saved = {}
+    for k, ch in pairs(channels) do saved[k] = ch.c end
+    channels = {}
+    discover_channels()
+    for k, ch in pairs(channels) do
+        if saved[k] ~= nil then ch.c = saved[k] end
+    end
+    trace("counter re-discover (" .. reason .. ") -> " .. channel_count() .. " channels")
+end
+
 local function update_counter()
     if state.counter_off then return end
     if channel_count() == 0 then
@@ -990,6 +1004,11 @@ local function update_counter()
     local now = safe(function() return os.time() end)
     local label = os.date("%H:%M:%S")
     local flow = quest_flow()
+
+    if flow.playing and not state.prev_playing then
+        rediscover("quest start")
+    end
+    state.prev_playing = flow.playing
     state.last_playing = flow.playing
 
     if type(now) == "number" and type(observation.last_now) == "number" then
@@ -1001,24 +1020,45 @@ local function update_counter()
     if type(now) == "number" then observation.last_now = now end
 
     local wrote = false
-    for _, ch in pairs(channels) do
+    local alive = 0
+    for key, ch in pairs(channels) do
         local active = read_channel(ch)
-        local ev = step_counter(ch.c, active, now, label)
-        if ev ~= nil then
-            ch.c.events[#ch.c.events + 1] = { kind = ev.kind, at = ev.at }
-            while #ch.c.events > 50 do table.remove(ch.c.events, 1) end
-            wrote = true
-            if ev.kind == "start" then
-                if flow.playing then
-                    ch.c.uses_playing = (ch.c.uses_playing or 0) + 1
+        if active == nil then
+            ch.nil_polls = (ch.nil_polls or 0) + 1
+            if ch.nil_polls >= 40 then
+                channels[key] = nil
+                trace("counter dropped stale channel " .. tostring(ch.type))
+            end
+        else
+            ch.nil_polls = 0
+            alive = alive + 1
+            local ev = step_counter(ch.c, active, now, label)
+            if ev ~= nil then
+                ch.c.events[#ch.c.events + 1] = { kind = ev.kind, at = ev.at }
+                while #ch.c.events > 50 do table.remove(ch.c.events, 1) end
+                wrote = true
+                if ev.kind == "start" then
+                    if flow.playing then
+                        ch.c.uses_playing = (ch.c.uses_playing or 0) + 1
+                    end
+                    local ct = state.params.HORN_ATKUP
+                        and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
+                    trace(string.format("%s:%s #%d (cooltime=%s)",
+                        ch.type, ch.method, ch.c.uses, tostring(ct)))
                 end
-                local ct = state.params.HORN_ATKUP
-                    and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
-                trace(string.format("%s:%s #%d (cooltime=%s)",
-                    ch.type, ch.method, ch.c.uses, tostring(ct)))
             end
         end
     end
+
+    -- Everything answered nil: the objects are stale, look again (at most
+    -- every ~30 s so the walk cannot become a per-frame cost).
+    if alive == 0 and channel_count() > 0 then
+        if state.frame >= (state.redisc_next or 0) then
+            state.redisc_next = state.frame + 1800
+            rediscover("all channels stale")
+        end
+    end
+
     if wrote or counter_ticks % 240 == 0 then save_counter() end
 end
 

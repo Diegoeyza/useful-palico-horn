@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1 — 2026-11-18
+
+The counter was reading the wrong object again, for a new reason: discovery ran
+in the hub, where the correct `<StatusManager>._OtomoConditionManager` does not
+exist yet, so it latched onto the look-alike `_StockDamage._Condition` (same
+type, permanently false). All six channels were that instance.
+
+- Re-discover channels on the **quest start** transition, keeping counters for
+  keys that survive.
+- Drop a channel after 40 consecutive `nil` reads (a destroyed object), and
+  re-discover when every channel has gone stale, rate-limited to ~30 s so the
+  walk can never become a per-frame cost.
+- `otomo_counter.json` records the per-channel `path`, which is how this was
+  spotted at all.
+- Quiet-others was measured at 0 uses in 308 s of quest time — but with the
+  wrong object, so it is **inconclusive**; the default stays off.
+
 ## 0.4.0 — 2026-11-18
 
 The counter found the right signal (`app.cOtomoConditionManager` under the
