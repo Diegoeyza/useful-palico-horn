@@ -6,12 +6,14 @@ every Palico tool is configurable.
 
 ## Status
 
-**v0.2.0 — data tuning.** The Palico's tool cooldowns are plain data, and the
-Attack-Up horn ships with a **600 s** cooldown. This mod writes that number down
-to whatever you pick (default 90 s), per tool.
+**v0.3.0 — data tuning + a read-only horn counter.** The Palico's tool cooldowns
+are plain data, and the Attack-Up horn ships with a **600 s** cooldown. This mod
+writes that number down to whatever you pick (default 90 s), per tool, and
+counts how often the buff actually goes up so the result can be measured.
 
-Verified in game: the values are real and reachable. Not yet verified: how far
-the AI's desire gate then limits actual use (see `docs/VERIFY.md`).
+Verified in game: the value writes and sticks (`600 -> 90 via set_field`), and
+the game does not re-assert it. Not yet verified: how much the AI's desire gate
+then limits actual use — the counter answers that.
 
 ## How it works
 
@@ -67,10 +69,11 @@ package.sh                    builds dist/ bundles
 LUA=/tmp/opencode/lua51/lua ./tests/run.sh
 ```
 
-90 assertions: config normalisation and legacy migration, case-insensitive
+109 assertions: config normalisation and legacy migration, case-insensitive
 presets, the enum→param-field mapping, the "never write what you could not read"
 rule, the write gate, the full apply/restore path against fake param objects,
-and the tick schedule.
+the write-strategy ladder (`set_field` first), the horn counter's transition
+state machine, and the tick schedule.
 
 ## Install
 

@@ -10,7 +10,7 @@ Requires REFramework (dinput8.dll) for Monster Hunter Wilds.
    A Lua error in re2_framework_log.txt means the file did not load; check
    that the file is byte-identical to the repo copy.
 
-3. Insert -> Script Generated UI -> "Otomo Tools v0.2.1".
+3. Insert -> Script Generated UI -> "Otomo Tools v0.3.0".
 
 Settings are saved to <game>\reframework\data\otomo_tools.json the first time
 you change something in the panel.

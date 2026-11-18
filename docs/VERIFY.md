@@ -24,9 +24,9 @@ questions; these are facts now, not assumptions:
 1. Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`.
 2. REFramework → Script → Reset scripts.
 3. Insert → Script Generated UI → **Otomo Tools**. The title must read
-   `v0.2.1`; if it does not, the file did not reach the game.
-4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.2.1 (…)`.
-5. `otomo_tools_trace.json` shows `loaded v0.2.1 … tools=14` and, once in the
+   `v0.3.0`; if it does not, the file did not reach the game.
+4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.3.0 (…)`.
+5. `otomo_tools_trace.json` shows `loaded v0.3.0 … tools=14` and, once in the
    hub or a quest, `param root resolved (N fields)`.
 
 ## 2. The write lands
@@ -62,14 +62,22 @@ This is the part that cannot be automated: the params are copied into the
 per-tool runtime object when the otomo is set up, so the change takes effect
 from the **next quest**.
 
-1. Baseline: with the mod **disabled**, hunt 10 minutes and count horn uses
-   (a use is visible as the buff icon appearing).
-2. Enable `horn_attack` in the hub, start the same quest, count again.
-3. Expected: at least one use per ~2 minutes instead of one per 10, i.e. 4–5
-   uses in 10 minutes.
+v0.3.0 measures it for you — no need to count by eye.
 
-If the count does not move, the cooldown was not the limiter. Then check, in
-this order:
+1. In the hub, press **Reset counter**.
+2. Start a quest and hunt for ~10 minutes.
+3. Read the panel (`horn uses: N  uptime: X%  last: HH:MM:SS`) or
+   `reframework/data/otomo_counter.json`.
+4. Expected: **4–6 uses** in 10 minutes instead of ~1, and `uptime_pct`
+   roughly 10–20 % (the buff lasts ~8.5 s per use).
+
+The counter reads the buff, not the tool: `signal` in the JSON names the object
+and method it settled on. If it says `buff signal not found yet`, or the count
+stays 0 while you can see the icon appearing, read
+`otomo_counter_diag.json` — it lists every candidate the walk found, and the
+target needs changing to the one whose `isActiveAttackUp` actually flips.
+
+If the count does not move, the cooldown was not the limiter. Then, in order:
 
 | Symptom | Meaning | Next step |
 |---|---|---|

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 2026-11-18
+
+- **Read-only horn counter.** Watches the Attack-Up buff go off → on and reports
+  uses, uptime and the last use, so the effect of the cooldown change can be
+  measured instead of eyeballed.
+- Resolves the signal by method name (`isActiveAttackUp`, falling back to
+  `isEnableAttackUpIcon`) starting from the master control and the otomo
+  character; the chosen object and every other candidate are dumped to
+  `otomo_counter_diag.json` so a wrong target is visible rather than silent.
+- Writes `otomo_counter.json` on every transition (and about once a minute for
+  `observed_sec`). It never writes to the game.
+- Panel: `horn uses / uptime% / last` plus **Reset counter**.
+- Tests: 86 logic + 23 pipeline = 109, including the transition state machine
+  (off→on counts, on→on does not, on→off adds duration, an unknown signal
+  changes nothing, a missing clock still counts).
+
 ## 0.2.1 — 2026-11-18
 
 **The catalog write was a no-op and the trace proved it:**

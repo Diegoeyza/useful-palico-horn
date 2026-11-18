@@ -205,6 +205,41 @@ eq(plan[1].name, "HORN_ATKUP", "sorted first")
 eq(plan[2].name, "SLINGER", "sorted second")
 
 -- ---------------------------------------------------------------------------
+group("horn counter (read-only, pure transitions)")
+-- ---------------------------------------------------------------------------
+
+local c = { uses = 0, uptime = 0, observed = 0, last_state = false }
+
+check(T.step_counter(c, false, 100, "t0") == nil, "off -> off is not an event")
+eq(c.uses, 0, "no use yet")
+
+local ev = T.step_counter(c, true, 101, "t1")
+eq(ev and ev.kind, "start", "off -> on is a start event")
+eq(c.uses, 1, "use counted")
+eq(c.active_since, 101, "start time kept")
+
+check(T.step_counter(c, true, 105, "t5") == nil, "on -> on is not an event")
+eq(c.uses, 1, "still one use")
+
+ev = T.step_counter(c, false, 110, "t10")
+eq(ev and ev.kind, "end", "on -> off is an end event")
+eq(c.uptime, 9, "duration accumulated")
+eq(c.uses, 1, "ending does not add a use")
+
+-- Unknown signal must not fabricate transitions.
+local c2 = { uses = 0, uptime = 0, observed = 0, last_state = true, active_since = 200 }
+check(T.step_counter(c2, nil, 210, "tx") == nil, "nil signal is not an event")
+eq(c2.uses, 0, "nil signal does not count")
+eq(c2.last_state, true, "nil signal leaves the state alone")
+
+-- A second use, with no clock available: still counted, no crash.
+local c3 = { uses = 0, uptime = 0, observed = 0, last_state = false }
+T.step_counter(c3, true, nil, "t1")
+T.step_counter(c3, false, nil, "t2")
+eq(c3.uses, 1, "counted without a clock")
+eq(c3.uptime, 0, "no duration without a clock")
+
+-- ---------------------------------------------------------------------------
 group("word wrap (the text_wrapped binding is missing on this build)")
 -- ---------------------------------------------------------------------------
 

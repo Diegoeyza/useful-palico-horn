@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.2.1"
+local VERSION = "0.3.0"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -222,6 +222,51 @@ local function walk_find(root, pattern, maxDepth, maxNodes)
         local tn = td and safe(function() return td:get_full_name() end) or nil
         if tn and tn:lower():find(pattern:lower(), 1, true) then
             out[#out + 1] = { path = item.path, type = tn, obj = item.obj }
+        end
+        if item.depth < maxDepth then
+            for _, k in ipairs(children_of(item.obj)) do
+                local v = k.value
+                if is_obj(v) and not seen[v] then
+                    seen[v] = true
+                    tail = tail + 1
+                    queue[tail] = { obj = v, path = item.path .. "." .. k.key, depth = item.depth + 1 }
+                end
+            end
+        end
+    end
+    return out
+end
+
+local function type_has_method(tn, methodName)
+    if not tn then return false end
+    local td = safe(sdk.find_type_definition, tn)
+    if not td then return false end
+    local depth = 0
+    while td and depth < 8 do
+        if safe(function() return td:get_method(methodName) end) then return true end
+        td = safe(function() return td:get_parent_type() end)
+        depth = depth + 1
+    end
+    return false
+end
+
+local function walk_find_method(root, methodName, maxDepth, maxNodes)
+    local out = {}
+    if root == nil then return out end
+    local queue = { [1] = { obj = root, path = "root", depth = 0 } }
+    local seen = { [root] = true }
+    local nodes, head, tail = 0, 1, 1
+    maxDepth = maxDepth or 4
+    maxNodes = maxNodes or 400
+    while head <= tail and nodes < maxNodes do
+        local item = queue[head]
+        queue[head] = nil
+        head = head + 1
+        nodes = nodes + 1
+        local td = safe(function() return item.obj:get_type_definition() end)
+        local tn = td and safe(function() return td:get_full_name() end) or nil
+        if tn and type_has_method(tn, methodName) then
+            out[#out + 1] = { path = item.path, type = tn, obj = item.obj, method = methodName }
         end
         if item.depth < maxDepth then
             for _, k in ipairs(children_of(item.obj)) do
@@ -451,6 +496,34 @@ local function plan_tuning(cfg, current)
     return out
 end
 
+-- Count uses from a boolean signal. Pure: no game calls, so it is testable
+-- offline. An unknown signal (nil) never changes the state.
+local function step_counter(c, active, now, label)
+    if c == nil or active == nil then return nil end
+    if type(now) == "number" and type(c.last_now) == "number" then
+        local d = now - c.last_now
+        if d > 0 then c.observed = (c.observed or 0) + d end
+    end
+    if type(now) == "number" then c.last_now = now end
+
+    local event = nil
+    if active and not c.last_state then
+        c.uses = (c.uses or 0) + 1
+        c.active_since = now
+        c.last_at = label
+        event = { kind = "start", uses = c.uses, at = label }
+    elseif not active and c.last_state then
+        if type(now) == "number" and type(c.active_since) == "number" then
+            local d = now - c.active_since
+            if d > 0 then c.uptime = (c.uptime or 0) + d end
+        end
+        c.active_since = nil
+        event = { kind = "end", at = label }
+    end
+    c.last_state = active
+    return event
+end
+
 M._test = {
     normalize_config = normalize_config,
     apply_preset = apply_preset,
@@ -458,6 +531,7 @@ M._test = {
     write_gate_ok = write_gate_ok,
     plan_tuning = plan_tuning,
     param_field_for = param_field_for,
+    step_counter = step_counter,
     wrap_text = wrap_text,
     presets = PRESETS,
     modes = MODES,
@@ -494,6 +568,11 @@ local state = {
     managed = {},         -- enum member -> runtime cOtomoToolManagedBase
     tool_manager = nil,
     tool_manager_path = nil,
+    buff = nil,
+    buff_signal = nil,
+    buff_type = nil,
+    buff_path = nil,
+    counter_off = false,
     original = {},        -- enum member -> _CoolTime at first sight
     original_global = nil,
     diag_done = false,
@@ -716,6 +795,135 @@ local function quest_flow()
     }
 end
 
+-- ---------------------------------------------------------------------------
+-- read-only horn counter
+--
+-- Counts transitions of the Attack-Up buff from off to on. It never writes to
+-- the game; the only output is otomo_counter.json + a trace line per use.
+-- ---------------------------------------------------------------------------
+
+local counter = {
+    uses = 0, uptime = 0, observed = 0,
+    last_state = false, active_since = nil, last_now = nil, last_at = nil,
+    events = {}, ticks = 0,
+}
+
+local function counter_snapshot()
+    local ct = state.params.HORN_ATKUP
+        and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
+    return {
+        version = VERSION,
+        uses = counter.uses,
+        uptime_sec = counter.uptime,
+        observed_sec = counter.observed,
+        uptime_pct = counter.observed > 0
+            and (math.floor(counter.uptime / counter.observed * 1000 + 0.5) / 10) or nil,
+        last_use = counter.last_at,
+        horn_cooltime = ct,
+        signal = state.buff_signal,
+        buff_type = state.buff_type,
+        buff_path = state.buff_path,
+        events = counter.events,
+    }
+end
+
+local function save_counter()
+    safe(function() json.dump_file("otomo_counter.json", counter_snapshot()) end)
+end
+
+local function buff_active()
+    if state.buff == nil or state.buff_signal == nil then return nil end
+    local v = getter(state.buff, state.buff_signal)
+    if v == nil then return nil end
+    return v == true
+end
+
+-- Find the object that exposes isActiveAttackUp (fallback: the icon flag).
+local function resolve_buff_owner()
+    if state.buff ~= nil then return true end
+    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
+    if not om then return false end
+
+    local roots = {}
+    local ctl = getter(om, "getMasterOtomoManagedControl")
+    if ctl ~= nil then roots[#roots + 1] = { name = "control", obj = ctl } end
+    local char = master_character()
+    if char ~= nil then roots[#roots + 1] = { name = "character", obj = char } end
+    if #roots == 0 then return false end
+
+    local found = {}
+    for _, r in ipairs(roots) do
+        for _, mname in ipairs({ "isActiveAttackUp", "isEnableAttackUpIcon" }) do
+            for _, h in ipairs(walk_find_method(r.obj, mname, 5, 400)) do
+                found[#found + 1] = {
+                    root = r.name, path = h.path, type = h.type,
+                    method = mname, obj = h.obj,
+                }
+            end
+        end
+    end
+
+    local chosen = nil
+    for _, f in ipairs(found) do
+        if f.method == "isActiveAttackUp" then chosen = f break end
+    end
+    if chosen == nil then chosen = found[1] end
+
+    if chosen ~= nil then
+        state.buff = chosen.obj
+        state.buff_signal = chosen.method
+        state.buff_type = chosen.type
+        state.buff_path = chosen.path
+        trace("counter signal: " .. tostring(chosen.type) .. ":" .. tostring(chosen.method))
+    end
+
+    safe(function()
+        local list = {}
+        for _, f in ipairs(found) do
+            list[#list + 1] = { root = f.root, type = f.type, method = f.method, path = f.path }
+        end
+        json.dump_file("otomo_counter_diag.json", {
+            version = VERSION,
+            chosen = chosen and {
+                type = chosen.type, method = chosen.method, path = chosen.path,
+            } or nil,
+            candidates = list,
+        })
+    end)
+    return state.buff ~= nil
+end
+
+local function update_counter()
+    if state.counter_off then return end
+    if state.buff == nil then
+        -- the walk is not free; retry every ~5 s, not every poll
+        if state.frame < (state.buff_next or 0) then return end
+        state.buff_next = state.frame + 300
+        if not resolve_buff_owner() then return end
+    end
+
+    counter.ticks = counter.ticks + 1
+    local active = buff_active()
+    local now = safe(function() return os.time() end)
+    local ev = step_counter(counter, active, now, os.date("%H:%M:%S"))
+
+    if ev ~= nil then
+        counter.events[#counter.events + 1] = {
+            kind = ev.kind, at = ev.at, uses = ev.uses,
+        }
+        while #counter.events > 100 do table.remove(counter.events, 1) end
+        if ev.kind == "start" then
+            local ct = state.params.HORN_ATKUP
+                and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
+            trace(string.format("horn use #%d (cooltime=%s)", ev.uses, tostring(ct)))
+        end
+        save_counter()
+    elseif counter.ticks % 240 == 0 then
+        save_counter()      -- keep observed_sec fresh (about once a minute)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- One-shot diagnostic: what the field is, why the write failed, and whether the
 -- runtime tool manager is reachable at all. Written once per session.
 local function dump_diagnostic(toolName, paramObj, rec, managedBefore, managedAfter)
@@ -840,6 +1048,13 @@ end
 
 local function tick()
     state.frame = state.frame + 1
+
+    -- the counter is read-only and independent of the tuning config
+    if state.frame % 15 == 0 then
+        local ok, err = pcall(update_counter)
+        if not ok then log.info(TAG .. " counter error: " .. tostring(err)) end
+    end
+
     if not state.cfg then return end
     if not should_tick(state.frame, state.cfg.apply_interval_frames) then return end
     local ok, err = pcall(apply_tuning)
@@ -953,6 +1168,24 @@ local function draw_body()
     end
 
     imgui.separator()
+    -- read-only counter
+    if state.buff == nil then
+        imgui.text("horn counter: buff signal not found yet")
+    else
+        local pct = counter.observed > 0
+            and (math.floor(counter.uptime / counter.observed * 1000 + 0.5) / 10) or 0
+        imgui.text(string.format("horn uses: %d   uptime: %s%%   last: %s",
+            counter.uses, tostring(pct), tostring(counter.last_at or "-")))
+        imgui.text("signal: " .. tostring(state.buff_type) .. ":" .. tostring(state.buff_signal))
+    end
+    if imgui.button("Reset counter") then
+        counter.uses, counter.uptime, counter.observed = 0, 0, 0
+        counter.events, counter.last_at = {}, nil
+        counter.last_state, counter.active_since, counter.last_now = false, nil, nil
+        save_counter()
+    end
+
+    imgui.separator()
     if imgui.button("Restore original cooltimes") then
         restore_originals()
     end
@@ -986,6 +1219,8 @@ M._test._rt = {
     field_value = field_value,
     restore_originals = restore_originals,
     quest_flow = quest_flow,
+    counter = counter,
+    update_counter = update_counter,
 }
 
 if _G.OTOMO_TOOLS_TEST then
