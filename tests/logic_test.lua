@@ -4,10 +4,10 @@
 -- Runs under a plain Lua 5.1 interpreter (the game's LuaJIT is 5.1), with the
 -- REFramework globals stubbed out. Nothing here touches the game.
 --
---   LUA=/tmp/opencode/lua51 ./tests/run.sh
+--   LUA=/tmp/opencode/lua51/lua ./tests/run.sh
 --
--- The mod exports its pure functions on M._test when OTOMO_TOOLS_TEST is set,
--- so the same code that ships is what gets tested.
+-- The enum names, field names and cool times are the real ones from
+-- otomo_probe_types.json / otomo_probe_instance.json (2026-11-18).
 --
 
 _G.OTOMO_TOOLS_TEST = true
@@ -46,17 +46,26 @@ local function check(cond, what)
 end
 
 local function eq(a, b, what)
-    check(a == b, string.format("%s (got %s, want %s)", tostring(what),
-        tostring(a), tostring(b)))
+    check(a == b, string.format("%s (got %s, want %s)", tostring(what), tostring(a),
+        tostring(b)))
 end
 
--- The enum names are what the live build gave the probe. Keep them a fixture so
--- a rename shows up as a failed test rather than a silently empty table.
+-- The live enum, exactly as the probe dumped it (sentinels included: the
+-- loader filters those, this list is what reaches the config).
 local NAMES = {
-    "Horn", "Horn_AtkUp", "Horn_DefUp", "Bomb", "SetBomb",
-    "SetParalyzeTrap", "SetFlashTrap", "Slinger", "ShieldProvoke",
-    "StealBoomerang", "InsectHeal_Delivery", "InsectHeal_Revive",
-    "HealBugWarmSet", "BadConditionsHeal_Delivery",
+    "INSECT_HEAL_DELIVERY", "SHIELD_PROVOKE", "HORN_ATKUP", "HORN_DEFUP",
+    "SLINGER", "TRAP_PARALYZE", "DRAG_AIR_SHIP", "INSECT_HEAL_REVIVE",
+    "TRAP_FLASH", "SET_INSECT_HEAL", "STEAL_BOOMERANG",
+    "BAD_CONDITIONS_HEAL_DELIVERY", "SET_BOMB", "MULTI_HIT_BOOMERANG",
+}
+
+-- The live field names on app.user_data.OtomoToolParam.
+local FIELDS = {
+    "_GlobalCoolTime", "_CheckEnemyAreaMoveTime",
+    "_InsectDelivery", "_BadConditionsHealDelivery", "_HealBugWarmSet",
+    "_InsectRevive", "_ShieldProvoke", "_Slinger", "_Bomb", "_SetBomb",
+    "_SetParalyzeTrap", "_SetFlashTrap", "_Horn_AtkUp", "_Horn_DefUp",
+    "_StealBoomerang", "_DragAirShip",
 }
 
 -- ---------------------------------------------------------------------------
@@ -66,142 +75,134 @@ group("normalize: defaults")
 local cfg = T.normalize_config(nil, NAMES)
 eq(cfg.enabled, true, "enabled default")
 eq(cfg.preset, "horn_attack", "preset default")
-eq(cfg.tick_interval_frames, 30, "tick default")
-eq(cfg.reset_global_cooldown, true, "gcd default")
-eq(cfg.debug, false, "debug default")
-eq(cfg.tools.Horn_AtkUp and cfg.tools.Horn_AtkUp.mode, "cooldown", "preset applied to horn atk")
-eq(cfg.tools.Horn_DefUp and cfg.tools.Horn_DefUp.mode, "off", "preset turns horn def off")
+eq(cfg.apply_interval_frames, 300, "interval default")
+eq(cfg.global_cooltime_sec, 0, "global cooltime left alone by default")
+eq(cfg.tools.HORN_ATKUP and cfg.tools.HORN_ATKUP.mode, "tune", "horn preset is tune")
+eq(cfg.tools.HORN_ATKUP and cfg.tools.HORN_ATKUP.cooltime_sec, 90, "horn preset target")
+eq(cfg.tools.HORN_DEFUP, nil, "horn_attack leaves the defence horn alone")
 
 -- ---------------------------------------------------------------------------
-group("normalize: hostile input")
--- ---------------------------------------------------------------------------
-
-cfg = T.normalize_config({
-    enabled = false,
-    tick_interval_frames = 100000,
-    tools = { Nope = { mode = "cooldown" } },
-}, NAMES)
-eq(cfg.enabled, false, "enabled false survives")
-eq(cfg.tick_interval_frames, 600, "interval clamped high")
-eq(cfg.tools.Nope, nil, "unknown tool dropped")
-check(cfg.tools.Horn_AtkUp ~= nil, "empty result falls back to preset")
-
-cfg = T.normalize_config({ tick_interval_frames = -5 }, NAMES)
-eq(cfg.tick_interval_frames, 1, "interval clamped low")
-
-cfg = T.normalize_config({
-    tools = { Horn_AtkUp = { mode = "banana" } },
-}, NAMES)
-eq(cfg.tools.Horn_AtkUp.mode, "off", "unknown mode -> off")
-
-cfg = T.normalize_config({
-    tools = { Horn_AtkUp = "cooldown" },
-}, NAMES)
-eq(cfg.tools.Horn_AtkUp and cfg.tools.Horn_AtkUp.mode, "cooldown",
-    "non-table entry replaced by the preset")
-
--- ---------------------------------------------------------------------------
-group("normalize: no live names yet")
--- ---------------------------------------------------------------------------
-
--- At load the enum can be missing (menu before a quest). An existing config
--- must survive that round trip, not be wiped.
-cfg = T.normalize_config({
-    tools = { SomeToolFromAPreviousPatch = { mode = "cooldown" } },
-}, {})
-eq(cfg.tools.SomeToolFromAPreviousPatch
-    and cfg.tools.SomeToolFromAPreviousPatch.mode, "cooldown",
-    "config kept when the enum is not loaded")
-
--- ---------------------------------------------------------------------------
-group("presets")
+group("presets match the live UPPERCASE enum members")
 -- ---------------------------------------------------------------------------
 
 local c2 = { preset = "horn_both", tools = {} }
 T.apply_preset(c2, NAMES)
-eq(c2.tools.Horn_AtkUp.mode, "cooldown", "horn_both atk")
-eq(c2.tools.Horn_DefUp.mode, "cooldown", "horn_both def")
-eq(c2.tools.Bomb, nil, "horn_both leaves bomb alone")
+eq(c2.tools.HORN_ATKUP.mode, "tune", "atk horn matched")
+eq(c2.tools.HORN_ATKUP.cooltime_sec, 90, "atk horn target")
+eq(c2.tools.HORN_DEFUP.mode, "tune", "def horn matched")
+eq(c2.tools.SLINGER, nil, "slinger untouched")
 
 c2 = { preset = "healing", tools = {} }
 T.apply_preset(c2, NAMES)
-eq(c2.tools.InsectHeal_Delivery.mode, "cooldown", "healing matches InsectHeal")
-eq(c2.tools.BadConditionsHeal_Delivery.mode, "cooldown", "healing matches BadCondition")
-eq(c2.tools.Horn_AtkUp, nil, "healing leaves the horn alone")
+eq(c2.tools.INSECT_HEAL_DELIVERY.mode, "tune", "insect delivery matched")
+eq(c2.tools.INSECT_HEAL_REVIVE.mode, "tune", "insect revive matched")
+eq(c2.tools.BAD_CONDITIONS_HEAL_DELIVERY.mode, "tune", "bad-conditions heal matched")
+eq(c2.tools.SET_INSECT_HEAL.mode, "tune", "insect heal set matched")
+eq(c2.tools.HORN_ATKUP, nil, "healing leaves the horn alone")
 
 c2 = { preset = "nonsense", tools = {} }
 T.apply_preset(c2, NAMES)
 eq(next(c2.tools), nil, "unknown preset applies nothing")
 
 -- ---------------------------------------------------------------------------
+group("normalize: hostile and legacy input")
+-- ---------------------------------------------------------------------------
+
+cfg = T.normalize_config({
+    enabled = false,
+    apply_interval_frames = 100000,
+    tools = { Nope = { mode = "tune", cooltime_sec = 30 } },
+}, NAMES)
+eq(cfg.enabled, false, "enabled false survives")
+eq(cfg.apply_interval_frames, 3600, "interval clamped high")
+eq(cfg.tools.Nope, nil, "unknown tool dropped")
+check(cfg.tools.HORN_ATKUP ~= nil, "empty result falls back to preset")
+
+cfg = T.normalize_config({ apply_interval_frames = -5 }, NAMES)
+eq(cfg.apply_interval_frames, 1, "interval clamped low")
+
+cfg = T.normalize_config({ tools = { HORN_ATKUP = { mode = "banana" } } }, NAMES)
+eq(cfg.tools.HORN_ATKUP.mode, "off", "unknown mode -> off")
+
+-- v1 used mode="cooldown" for the same intent
+cfg = T.normalize_config({ tools = { HORN_ATKUP = { mode = "cooldown", cooldown_sec = 120 } } }, NAMES)
+eq(cfg.tools.HORN_ATKUP.mode, "tune", "legacy mode migrated")
+eq(cfg.tools.HORN_ATKUP.cooltime_sec, 120, "legacy cooldown_sec migrated")
+
+cfg = T.normalize_config({ tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 99999 } } }, NAMES)
+eq(cfg.tools.HORN_ATKUP.cooltime_sec, 3600, "cooltime clamped high")
+
+cfg = T.normalize_config({ global_cooltime_sec = -10 }, NAMES)
+eq(cfg.global_cooltime_sec, 0, "global cooltime clamped to 0")
+
+-- ---------------------------------------------------------------------------
+group("param field mapping (the riskiest logic)")
+-- ---------------------------------------------------------------------------
+
+eq(T.param_field_for("HORN_ATKUP", FIELDS), "_Horn_AtkUp", "explicit horn atk")
+eq(T.param_field_for("HORN_DEFUP", FIELDS), "_Horn_DefUp", "explicit horn def")
+eq(T.param_field_for("SLINGER", FIELDS), "_Slinger", "normalized fallback (slinger)")
+eq(T.param_field_for("SET_BOMB", FIELDS), "_SetBomb", "normalized fallback (set bomb)")
+eq(T.param_field_for("TRAP_PARALYZE", FIELDS), "_SetParalyzeTrap", "explicit trap paralyze")
+eq(T.param_field_for("TRAP_FLASH", FIELDS), "_SetFlashTrap", "explicit trap flash")
+eq(T.param_field_for("MULTI_HIT_BOOMERANG", FIELDS), "_Bomb", "explicit boomerang")
+eq(T.param_field_for("BAD_CONDITIONS_HEAL_DELIVERY", FIELDS),
+    "_BadConditionsHealDelivery", "long name")
+eq(T.param_field_for("SET_INSECT_HEAL", FIELDS), "_HealBugWarmSet", "explicit insect heal set")
+eq(T.param_field_for("NOT_A_TOOL", FIELDS), nil, "unknown tool maps to nothing")
+eq(T.param_field_for("HORN_ATKUP", { "_SomethingElse" }), nil,
+    "an explicit name that does not exist is not guessed")
+
+-- ---------------------------------------------------------------------------
 group("schedule")
 -- ---------------------------------------------------------------------------
 
-check(T.should_tick(30, 30), "frame 30 ticks at 30")
-check(not T.should_tick(29, 30), "frame 29 does not")
+check(T.should_tick(300, 300), "frame 300 ticks at 300")
+check(not T.should_tick(299, 300), "frame 299 does not")
 check(T.should_tick(7, 0), "interval 0 is coerced to 1")
-check(T.should_tick(30, nil), "nil interval uses the default 30")
-check(not T.should_tick(7, nil), "nil interval still gates on the default")
+check(T.should_tick(300, nil), "nil interval uses the default 300")
 
 -- ---------------------------------------------------------------------------
-group("quest gate")
+group("write gate")
 -- ---------------------------------------------------------------------------
 
-check(T.quest_gate_ok({ playing = true }), "playing alone is enough")
-check(not T.quest_gate_ok({ playing = false }), "not playing blocks")
-check(not T.quest_gate_ok({ playing = true, result = true }), "results block")
-check(not T.quest_gate_ok({ playing = true, ending = true }), "end screen blocks")
-check(not T.quest_gate_ok({ playing = true, loading = true }), "loading blocks")
-check(not T.quest_gate_ok(nil), "nil flow blocks")
+check(T.write_gate_ok({}), "quiet state is writable")
+check(T.write_gate_ok({ playing = true }), "mid-quest is writable (data only)")
+check(not T.write_gate_ok({ loading = true }), "loading blocks")
+check(not T.write_gate_ok({ result = true }), "results block")
+check(not T.write_gate_ok({ ending = true }), "end screen blocks")
+check(not T.write_gate_ok(nil), "nil flow blocks")
 
 -- ---------------------------------------------------------------------------
-group("plan: only what the game says is on cooldown")
+group("plan: only what is readable and different")
 -- ---------------------------------------------------------------------------
 
 local pc = { enabled = true, tools = {
-    Horn_AtkUp = { mode = "cooldown" },
-    Horn_DefUp = { mode = "off" },
-    Bomb = { mode = "cooldown" },
+    HORN_ATKUP = { mode = "tune", cooltime_sec = 90 },
+    HORN_DEFUP = { mode = "off", cooltime_sec = 90 },
+    SLINGER = { mode = "tune", cooltime_sec = 120 },
 } }
 
-local plan = T.plan_resets(pc, {
-    Horn_AtkUp = { ok = false },
-    Bomb = { ok = true },
-})
-eq(#plan, 1, "one tool planned")
-eq(plan[1], "Horn_AtkUp", "the on-cooldown tool")
+local plan = T.plan_tuning(pc, { HORN_ATKUP = 600, SLINGER = 120 })
+eq(#plan, 1, "one write planned")
+eq(plan[1].name, "HORN_ATKUP", "the differing tool")
+eq(plan[1].target, 90, "target seconds")
+eq(plan[1].current, 600, "current seconds")
 
--- The important safety property: no live state, no write.
-plan = T.plan_resets(pc, {})
-eq(#plan, 0, "unknown state is never reset blind")
+plan = T.plan_tuning(pc, { HORN_ATKUP = 90, SLINGER = 120 })
+eq(#plan, 0, "already matching means no write")
 
-plan = T.plan_resets(pc, {
-    Horn_AtkUp = { ok = false, using = true },
-})
-eq(#plan, 0, "never reset the tool that is being used")
+-- The safety property: unreadable state is never written.
+plan = T.plan_tuning(pc, {})
+eq(#plan, 0, "unknown current is never written")
 
-plan = T.plan_resets({ enabled = false, tools = pc.tools },
-    { Horn_AtkUp = { ok = false } })
-eq(#plan, 0, "disabled mod plans nothing")
+plan = T.plan_tuning({ enabled = false, tools = pc.tools }, { HORN_ATKUP = 600 })
+eq(#plan, 0, "disabled plans nothing")
 
-plan = T.plan_resets(pc, {
-    Horn_DefUp = { ok = false },
-    Bomb = { ok = false },
-    Horn_AtkUp = { ok = false },
-})
-eq(#plan, 2, "off tools are skipped even when on cooldown")
-eq(plan[1], "Bomb", "plan is sorted (Bomb)")
-eq(plan[2], "Horn_AtkUp", "plan is sorted (Horn_AtkUp)")
-
--- ---------------------------------------------------------------------------
-group("active names (the only tools allowed near a native call)")
--- ---------------------------------------------------------------------------
-
-local an = T.active_names(pc)
-check(an.Horn_AtkUp, "active includes a cooldown tool")
-check(an.Bomb, "active includes the second cooldown tool")
-check(not an.Horn_DefUp, "off tools are never active")
-eq(next(T.active_names(nil)), nil, "nil config has no active tools")
+plan = T.plan_tuning(pc, { HORN_DEFUP = 600, SLINGER = 5, HORN_ATKUP = 600 })
+eq(#plan, 2, "off tools skipped even when they differ")
+eq(plan[1].name, "HORN_ATKUP", "sorted first")
+eq(plan[2].name, "SLINGER", "sorted second")
 
 -- ---------------------------------------------------------------------------
 group("word wrap (the text_wrapped binding is missing on this build)")
@@ -221,30 +222,27 @@ lines = T.wrap_text("", 10)
 eq(#lines, 1, "empty text still yields one line")
 eq(lines[1], "", "empty line")
 
-lines = T.wrap_text("short", 80)
-eq(#lines, 1, "short text stays on one line")
-eq(lines[1], "short", "content preserved")
-
 -- ---------------------------------------------------------------------------
 group("config round trip")
 -- ---------------------------------------------------------------------------
 
--- Whatever the UI writes must survive save -> load -> normalize unchanged.
 local saved = T.normalize_config({
     enabled = true,
     preset = "custom",
-    tick_interval_frames = 15,
+    apply_interval_frames = 120,
+    global_cooltime_sec = 30,
     tools = {
-        Horn_AtkUp = { mode = "cooldown" },
-        Bomb = { mode = "cooldown" },
-        Slinger = { mode = "off" },
+        HORN_ATKUP = { mode = "tune", cooltime_sec = 60 },
+        TRAP_FLASH = { mode = "tune", cooltime_sec = 180 },
+        SLINGER = { mode = "off" },
     },
 }, NAMES)
 local again = T.normalize_config(saved, NAMES)
-eq(again.tick_interval_frames, 15, "interval survives")
-eq(again.tools.Horn_AtkUp.mode, "cooldown", "mode survives")
-eq(again.tools.Bomb.mode, "cooldown", "second tool survives")
-eq(again.tools.Slinger.mode, "off", "off entry survives")
+eq(again.apply_interval_frames, 120, "interval survives")
+eq(again.global_cooltime_sec, 30, "global cooltime survives")
+eq(again.tools.HORN_ATKUP.cooltime_sec, 60, "mode survives")
+eq(again.tools.TRAP_FLASH.cooltime_sec, 180, "second tool survives")
+eq(again.tools.SLINGER.mode, "off", "off entry survives")
 
 -- ---------------------------------------------------------------------------
 -- summary

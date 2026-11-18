@@ -6,28 +6,57 @@ every Palico tool is configurable.
 
 ## Status
 
-**v0.1.1 — Tier A only (state-level cooldown control).** Built, offline-tested,
-not yet verified against a live build. See `docs/VERIFY.md`.
+**v0.2.0 — data tuning.** The Palico's tool cooldowns are plain data, and the
+Attack-Up horn ships with a **600 s** cooldown. This mod writes that number down
+to whatever you pick (default 90 s), per tool.
+
+Verified in game: the values are real and reachable. Not yet verified: how far
+the AI's desire gate then limits actual use (see `docs/VERIFY.md`).
+
+## How it works
+
+The Palico tools live in `app.user_data.OtomoToolParam`, one child object per
+tool, reachable in one hop from `OtomoManager.Catalog.GlobalParam.OtomoToolParam`:
+
+```
+_Horn_AtkUp._CoolTime        600   -> 90
+_Horn_AtkUp._CoolTime_PowerUp 480  -> 90
+```
+
+Each write is read back before it is reported. Nothing is triggered, animated,
+hooked, or called: this is a data edit, which is why it has no crash surface.
+
+The per-tool runtime object (`app.cOtomoToolManagedBase`) does have
+`resetCoolTimeSingle()` / `setCoolTime()`, but it is only reachable through the
+otomo's mini-component holder, which the probe could not resolve — so this mod
+does not use it.
 
 ## What it does / does not do
 
 | Does | Does not |
 |---|---|
-| Clears the per-tool cooldown (and optionally the global cooldown) for tools you pick | Call `useOtomoTool` / drive the animation |
-| Reads the live tool state and only writes when the game says "on cooldown" | Write every tick regardless of state |
-| Runs only during a quest, only on the master Palico | Touch networked Palico replicas |
+| Rewrites `_CoolTime` / `_CoolTime_PowerUp` for the tools you pick | Call any game action or animation |
+| Optionally rewrites the 90 s `_GlobalCoolTime` | Write anything it could not read first |
+| Restores the shipping values on demand | Touch the game's files or pak |
+| Works in the hub (where the game copies these values into the otomo) | Overflow past the enum (sentinels are filtered) |
 
-The design rule comes from this workspace's notes (`MODDING-NOTES.md` §7.2/§7.4):
-mutate state, never drive the action. The Nexus mod that did the quest-start
-version of this by forcing the tool has a long crash thread; this takes the
-boring path on purpose.
+## Presets
+
+| Preset | Targets |
+|---|---|
+| `horn_attack` (default) | `HORN_ATKUP` → 90 s |
+| `horn_both` | both horns → 90 s |
+| `healing` | every `*HEAL*` tool → 60 s |
+| `custom` | whatever you set in the panel |
+
+Every tool also has `-30` / `+30` / `tune`|`off` controls in the panel.
 
 ## Layout
 
 ```
 reframework/otomo_tools.lua   the mod
 tools/otomo_probe.lua         read-only discovery probe (not shipped)
-tests/logic_test.lua          offline tests (Lua 5.1)
+tests/                        offline tests, Lua 5.1
 docs/VERIFY.md                live verification checklist
 package.sh                    builds dist/ bundles
 ```
@@ -38,21 +67,16 @@ package.sh                    builds dist/ bundles
 LUA=/tmp/opencode/lua51/lua ./tests/run.sh
 ```
 
-Covers config normalisation (including hostile/partial configs), presets as
-patterns, the tick schedule, the quest gate, the reset planner's "never write
-without live state" rule, and a save→load→normalise round trip.
-
-## Probe first
-
-`tools/otomo_probe.lua` must be run once on a live build before the mod is
-trusted: it resolves which object actually owns `mcOtomoToolManager`, dumps the
-real `USE_OTOMO_TOOL_TYPE` members with their numeric values, and records a
-per-2s timeline of `canUseOtomoTool` / cooldown / horn-buff through a hunt.
-
-That timeline is what says whether the cooldown lever (this mod) is sufficient
-or whether the desire/lottery side has to be biased too.
+90 assertions: config normalisation and legacy migration, case-insensitive
+presets, the enum→param-field mapping, the "never write what you could not read"
+rule, the write gate, the full apply/restore path against fake param objects,
+and the tick schedule.
 
 ## Install
 
 Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`, then
 REFramework → Script → Reset scripts.
+
+Enabling it **in the hub** is better than mid-quest: the game copies these
+values into the otomo when it is set up, so a hub change applies from the next
+quest.

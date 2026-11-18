@@ -1,79 +1,92 @@
 # Otomo Tools — verification plan
 
-The pure logic is covered offline by `tests/` (45 assertions under Lua 5.1).
-What cannot be faked is the game, so this is the order that finds real problems
-fastest. Run it after a game patch and before every release.
+The pure logic and the apply path are covered offline by `tests/` (90
+assertions under Lua 5.1). What cannot be faked is the game, so this is the
+order that finds real problems fastest.
 
-## 0. Probe first (once per patch)
+## 0. What the probe already established (2026-11-18)
 
-The probe answers the questions the mod is built on. Without it, v0.1.1 is an
-educated guess.
+`otomo_probe_types.json` / `otomo_probe_instance.json` answered the open
+questions; these are facts now, not assumptions:
 
-1. Copy `tools/otomo_probe.lua` to `<game>\reframework\autorun\`.
-2. REFramework → Script → **Reset scripts**.
-3. **Dump types** (safe anywhere). Read `otomo_probe_types.json`:
-   - does `app.mcOtomoToolManager` exist, and does it declare
-     `canUseOtomoTool` / `resetCoolTimeSingle` / `resetGCDTimer`?
-   - which of `USE_OTOMO_TOOL_TYPE` / `_Fixed` / `OTOMO_TOOL_TYPE` has values,
-     and what are the numeric values of the horn members?
-   - does `app.OtomoDef` resolve as a nested type, or are the enums `app.X`?
-4. In a quest, press **Resolve instance**. Read `otomo_probe_instance.json`:
-   - `resolved_manager: true` and which `tools_hits[].path` produced it —
-     compare it with the routes in `otomo_tools.lua`'s `resolve_manager()`.
-   - `character_hits` — the master otomo was reachable at all.
-   - `buff_owners` — which type owns `isActiveAttackUp`.
-5. Leave **Watch** on for a full hunt. Read `otomo_probe_watch.json`:
-   - `tools[]` with `can=false` and `ok=false` most of the time → cooldown is
-     the blocker → **Tier A is the right lever**.
-   - `can=true` but the tool is never `using` → desire/lottery is the blocker →
-     Tier C (`restrict` / desire bias) is required.
-   - `can=true, ok=true` but rare → proximity/animation gating; check the
-     Palico's distance (`MoveToPLUseOtomoToolDist`).
-6. Remove the probe from `autorun/` when the JSON is read (do not ship it).
+- `app.OtomoDef.USE_OTOMO_TOOL_TYPE` exists with numeric values
+  (`HORN_ATKUP = 2`, `HORN_DEFUP = 3`, `MAX = 14`, `NONE = -1`).
+- `app.mcOtomoToolManager` exists, but its live instance is **not** reachable
+  from `OtomoManager` by the routes tried (the character's `_Components` is a
+  `COMPONENT_HOLDER`, not an array). Not used by the mod.
+- The tool params are reachable in one hop:
+  `OtomoManager._Catalog._GlobalParam._OtomoToolParam`.
+- Shipping values: `_Horn_AtkUp._CoolTime = 600`, `_CoolTime_PowerUp = 480`,
+  `_GlobalCoolTime = 90`, `_Horn_DefUp._CoolTime = 10`.
 
 ## 1. Load and version
 
 1. Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`.
 2. REFramework → Script → Reset scripts.
 3. Insert → Script Generated UI → **Otomo Tools**. The title must read
-   `v0.1.1`; if it does not, the file did not reach the game.
-4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.1.1 (…)`.
+   `v0.2.0`; if it does not, the file did not reach the game.
+4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.2.0 (…)`.
+5. `otomo_tools_trace.json` shows `loaded v0.2.0 … tools=14` and, once in the
+   hub or a quest, `param root resolved (N fields)`.
 
-## 2. Baseline vs mod (the actual claim)
+## 2. The write lands
 
-1. Without the mod (or with **Enabled** off), record a 10-minute hunt: how many
-   times did the Palico use the Attack-Up horn? Watch the buff icon, or read the
-   probe's `using` transitions.
-2. Enable the mod with `horn_attack`. Same quest, same Palico gear, 10 minutes.
-3. The horn count must rise; there must be no Lua error and no crash.
-4. The panel's `last reset:` line names `Horn_AtkUp` right after a cast, and
-   `otomo_tools_trace.json` shows `reset Horn_AtkUp (<n>)` lines.
+1. In the **hub**, open the panel. `tool params: resolved` must appear.
+2. `HORN_ATKUP tune now=600 want=90` before the first apply, then
+   `now=90` after the next interval (~5 s).
+3. The trace gains `HORN_ATKUP _CoolTime 600 -> 90 (want 90)`.
+4. **Restore original cooltimes** puts `now=600` back (and the trace says so).
 
-## 3. Gates
+If `now=` stays `nil`, the field mapping did not resolve — check that the panel
+lists `HORN_ATKUP` and that `param root resolved` appeared.
+
+## 3. Does the game honour it (the real test)
+
+This is the part that cannot be automated: the params are copied into the
+per-tool runtime object when the otomo is set up, so the change takes effect
+from the **next quest**.
+
+1. Baseline: with the mod **disabled**, hunt 10 minutes and count horn uses
+   (a use is visible as the buff icon appearing).
+2. Enable `horn_attack` in the hub, start the same quest, count again.
+3. Expected: at least one use per ~2 minutes instead of one per 10, i.e. 4–5
+   uses in 10 minutes.
+
+If the count does not move, the cooldown was not the limiter. Then check, in
+this order:
+
+| Symptom | Meaning | Next step |
+|---|---|---|
+| `now=90` but uses unchanged | the managed copy was made before the write, or desire gates it | re-apply at quest start, then investigate `cOtomoToolManagedBase` |
+| uses rise but cap at ~2/min | some other timer (animation, `_CheckAreaMoveTime`, GCD) | lower `global_cooltime_sec` too, then re-measure |
+| the Palico stands near you and never plays | `MoveToPLUseOtomoToolDist` / `_ActiveRange` | not a cooldown problem |
+
+## 4. Gates
 
 | Check | Expected |
 |---|---|
-| Results screen / end screen | no reset lines in the trace |
-| Loading screen | no reset lines |
-| Hub (not playing) | no reset lines |
-| Second player's Palico | never touched (only `getMasterOtomoManagedControl`) |
-| Reset scripts mid-quest | reloads cleanly, no duplicate callbacks |
+| Loading screen | no writes in the trace |
+| Results / end screen | no writes |
+| Quest with the mod off | no writes |
+| Second player's Palico | untouched (only the global param data is edited) |
+| Reset scripts | reloads cleanly, config kept |
 
-## 4. Failure modes to look for
+## 5. Failure modes
 
-- **No manager**: panel says `manager: not found (retrying)`. The route in
-  `resolve_manager()` is wrong for this patch — fix against the probe dump.
-- **Enum empty**: panel lists no tools. `USE_OTOMO_TOOL_TYPE` was renamed;
-  check the probe's `enums[]`.
-- **Buff never appears** but resets are happening: the cooldown was never the
-  blocker → go to Tier C.
-- **Crash**: check `otomo_tools_trace.json` for the last line. That is the
-  breadcrumb the game log cannot give you (`MODDING-NOTES.md` §1, §9).
+- **`tool params: not resolved yet`** — the catalog is not loaded (title screen)
+  or the field path changed in a patch. The trace's `param root resolved` is the
+  marker; if the type moved, fix `resolve_param_root()` against a fresh probe.
+- **`now=nil` for a tool** — `param_field_for()` returned nil or the object is
+  missing. It is deliberately conservative: it will not write a guessed field.
+- **Values revert between quests** — the game reloads the param data per stage.
+  The mod re-applies every interval; if the revert is after the otomo setup, the
+  change will not take effect that quest. Note it in the trace.
 
-## 5. Release gate
+## 6. Release gate
 
 1. `LUA=/tmp/opencode/lua51/lua ./tests/run.sh` → all pass, no unexpected
    globals.
 2. `./package.sh` → `dist/OtomoTools-<ver>.zip`.
 3. `cmp -s` the deployed file against the repo copy.
-4. Only the newest zip in `C:\Users\diego\Downloads\`.
+4. Remove `otomo_probe.lua` from `autorun/` (the probe is not shipped).
+5. Only the newest zip in `C:\Users\diego\Downloads\`.

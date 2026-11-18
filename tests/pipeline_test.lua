@@ -1,16 +1,14 @@
 --
--- pipeline_test.lua — the tick loop against a fake REFramework world
+-- pipeline_test.lua — apply_tuning against a fake REFramework world
 --
--- logic_test.lua covers the pure functions. This one runs the real tick():
--- quest gating, manager resolution caching, the guarded 1-arg calls, the reset
--- plan and the write. It is the only place the "we never call into a freed
--- object" rule can be checked without the game.
+-- logic_test.lua covers the pure functions. This runs the real code path:
+-- resolve OtomoManager -> Catalog -> GlobalParam -> OtomoToolParam, read the
+-- live _CoolTime values, plan, write, read back, and restore.
 --
 -- The fakes implement just enough of REFramework's shapes:
---   RETypeDefinition: get_full_name, get_methods, get_method, get_parent_type,
---                     get_fields
---   REMethodDefinition: get_name, get_num_params, get_param_types,
---                       get_return_type, is_static, call
+--   RETypeDefinition: get_full_name, get_fields, get_methods, get_method,
+--                     get_parent_type
+--   REField:          get_name, get_type, is_static, get_data, set_data
 --
 --   lua5.1 tests/pipeline_test.lua
 --
@@ -18,66 +16,45 @@
 _G.OTOMO_TOOLS_TEST = true
 
 -- ---------------------------------------------------------------------------
--- a very small reflection fake
+-- fake data objects (a table of numeric fields, plus child objects)
 -- ---------------------------------------------------------------------------
 
-local TYPES = {}
+local function make_object(typeName, entries)
+    local obj = {}
+    local ft = { name = typeName, fields = {} }
 
-local function param(n) return { get_name = function() return n end } end
-
-local function new_type(full_name, method_specs, field_specs, parent)
-    local t = {
-        full_name = full_name,
-        methods = {},
-        fields = {},
-        parent = parent,
-    }
-
-    for _, spec in ipairs(method_specs or {}) do
-        local params = spec.params or {}
-        t.methods[#t.methods + 1] = {
-            get_name = function() return spec.name end,
-            get_full_name = function() return full_name .. "." .. spec.name .. "()" end,
-            get_num_params = function() return #params end,
-            get_param_types = function()
-                local arr = {}
-                for i, p in ipairs(params) do arr[i] = param(p) end
-                return arr
-            end,
-            get_return_type = function() return { get_name = function() return "Boolean" end } end,
-            is_static = function() return spec.static == true end,
-            call = function(_, obj, ...) return spec.fn(obj, ...) end,
+    for fname, e in pairs(entries) do
+        -- Lua 5.1 reuses the loop variable, so closures must capture locals
+        -- or every field ends up reading the last entry.
+        local key, ent = fname, e
+        local desc = {
+            get_name = function() return key end,
+            get_type = function() return { get_name = function() return ent.type or "Int32" end } end,
+            is_static = function() return false end,
         }
-    end
-
-    for _, spec in ipairs(field_specs or {}) do
-        t.fields[#t.fields + 1] = {
-            get_name = function() return spec.name end,
-            get_type = function() return { get_name = function() return spec.type end } end,
-            is_static = function() return spec.static == true end,
-            get_data = function(_, obj) return spec.get(obj) end,
-        }
-    end
-
-    t.get_full_name = function() return full_name end
-    t.get_parent_type = function() return parent end
-    t.get_size = function() return 8 end
-    t.get_fields = function() return t.fields end
-    t.get_methods = function() return t.methods end
-    t.get_method = function(_, mname)
-        local want = mname:gsub("%(%)$", "")
-        for _, m in ipairs(t.methods) do
-            if m.get_name() == want then return m end
+        if ent.object ~= nil then
+            desc.get_data = function() return ent.object end
+            obj[key] = ent.object
+        else
+            desc.get_data = function() return ent.value end
+            desc.set_data = function(_, _, v) ent.value = v end
+            obj[key] = ent
         end
-        return nil
+        ft.fields[#ft.fields + 1] = desc
     end
 
-    TYPES[full_name] = t
-    return t
+    ft.get_full_name = function() return typeName end
+    ft.get_parent_type = function() return nil end
+    ft.get_fields = function() return ft.fields end
+    ft.get_methods = function() return {} end
+    ft.get_method = function() return nil end
+
+    obj.get_type_definition = function() return ft end
+    return obj
 end
 
-local function instance(ft)
-    return { get_type_definition = function() return ft end }
+local function entry(value, t)
+    return { value = value, type = t or "Int32" }
 end
 
 -- ---------------------------------------------------------------------------
@@ -85,95 +62,56 @@ end
 -- ---------------------------------------------------------------------------
 
 local world = {
-    playing = true,
+    loading = false,
     result = false,
     ending = false,
-    loading = false,
-    tool_on_cooldown = true,      -- isCoolTimeOut(false) => clear it
-    tool_can = true,
-    using = false,
-    using_type = 0,
-    resets = {},                  -- names of cleared tools
-    gcd_resets = 0,
-    cool_arg = nil,
+    writing = true,      -- global switch to simulate "value not readable"
 }
 
-local manager_type = new_type("app.mcOtomoToolManager", {
-    { name = "get_IsUseingTool", fn = function() return world.using end },
-    { name = "get_UseOtomoToolType", fn = function() return world.using_type end },
-    { name = "get_IsForceUseOtomoTool", fn = function() return false end },
-    { name = "canUseOtomoTool", params = { "USE_OTOMO_TOOL_TYPE" },
-      fn = function(_, v) return world.tool_can and v == world.cool_arg end },
-    { name = "isCoolTimeOut", params = { "USE_OTOMO_TOOL_TYPE" },
-      fn = function(_, v)
-          if v ~= world.cool_arg then return nil end
-          return not world.tool_on_cooldown
-      end },
-    { name = "resetCoolTimeSingle", params = { "USE_OTOMO_TOOL_TYPE" },
-      fn = function(_, v) world.resets[#world.resets + 1] = v end },
-    { name = "resetGCDTimer", fn = function() world.gcd_resets = world.gcd_resets + 1 end },
+local horn = make_object("app.user_data.OtomoToolParam_Horn_AtkUp", {
+    _CoolTime = entry(600),
+    _CoolTime_PowerUp = entry(480),
 })
 
-local manager = instance(manager_type)
-
-local mission_type = new_type("app.MissionManager", {
-    { name = "get_IsPlayingQuest", fn = function() return world.playing end },
-    { name = "get_IsQuestResult", fn = function() return world.result end },
-    { name = "get_IsQuestEndShowing", fn = function() return world.ending end },
-})
-local flow_type = new_type("app.GameFlowManager", {
-    { name = "get_Loading", fn = function() return world.loading end },
+local slinger = make_object("app.user_data.OtomoToolParam_Slinger", {
+    _CoolTime = entry(360),
+    _CoolTime_PowerUp = entry(360),
 })
 
-local mission = instance(mission_type)
-local flow = instance(flow_type)
-
--- a driver type that owns the manager, so resolve_manager() has a real route
-local driver_type = new_type("app.cOtomoManageControl", {
-    { name = "get_Dummy", fn = function() return nil end },
-}, {
-    { name = "_ManageControl", type = "app.mcOtomoToolManager",
-      get = function() return manager end },
+local root = make_object("app.user_data.OtomoToolParam", {
+    _GlobalCoolTime = entry(90),
+    _CheckEnemyAreaMoveTime = entry(10.0, "Single"),
+    _Horn_AtkUp = { object = horn, type = "app.user_data.OtomoToolParam_Horn_AtkUp" },
+    _Slinger = { object = slinger, type = "app.user_data.OtomoToolParam_Slinger" },
 })
 
--- the walker needs `type(v) == "userdata"` to recurse and list_length() to
--- decide "is this a list?"; the fakes are tables, so drive the route with a
--- one-element list and a get_Count that returns 1.
-local driver = instance(driver_type)
-driver.get_Count = function() return 1 end
-driver[0] = manager
+local globalParam = make_object("app.cOtomoGlobalParam", {
+    _OtomoToolParam = { object = root, type = "app.user_data.OtomoToolParam" },
+})
 
-local otomo_manager = {
-    get_type_definition = function()
-        return new_type("app.OtomoManager", {
-            { name = "getMasterOtomoManagedControl", fn = function() return driver end },
-        })
-    end,
-    call = function(_, name)
-        if name == "getMasterOtomoManagedControl" then return driver end
-        return nil
-    end,
-}
+local catalog = make_object("app.cOtomoCatalogHolder", {
+    _GlobalParam = { object = globalParam, type = "app.cOtomoGlobalParam" },
+})
 
--- ---------------------------------------------------------------------------
--- stubs consumed at load time
--- ---------------------------------------------------------------------------
+local otomoManager = make_object("app.OtomoManager", {
+    _Catalog = { object = catalog, type = "app.cOtomoCatalogHolder" },
+})
+
+local mission = make_object("app.MissionManager", {
+    _playing = entry(1),
+})
+local flow = make_object("app.GameFlowManager", {})
 
 local function noop() end
-local is_managed = {}
-is_managed[driver] = true
-is_managed[manager] = true
-
 re = { on_frame = noop, on_draw_ui = noop }
 sdk = {
-    find_type_definition = function(name) return TYPES[name] end,
+    find_type_definition = function() return nil end,
     get_managed_singleton = function(name)
-        if name == "app.OtomoManager" then return otomo_manager end
+        if name == "app.OtomoManager" then return otomoManager end
         if name == "app.MissionManager" then return mission end
         if name == "app.GameFlowManager" then return flow end
         return nil
     end,
-    is_managed_object = function(v) return is_managed[v] == true or v == driver end,
 }
 json = { dump_file = function() return true end, load_file = function() return nil end }
 log = { info = noop, warn = noop, debug = noop }
@@ -184,7 +122,33 @@ local dir = string.match(here, "^(.*)[/\\]") or "."
 local OT = dofile(dir .. "/../reframework/otomo_tools.lua")
 local T = OT._test
 local rt = T._rt
-assert(rt and rt.tick, "mod did not export its runtime hooks")
+assert(rt and rt.apply_tuning, "mod did not export its runtime hooks")
+
+-- MissionManager/GameFlowManager getters are resolved through get_method,
+-- so give those two types the shape the mod asks for.
+local function add_getter(obj, methodName, fn)
+    local ft = obj.get_type_definition()
+    local old = ft.get_methods
+    ft.get_methods = function() return old() end
+    local m = {
+        get_name = function() return methodName end,
+        get_num_params = function() return 0 end,
+        get_param_types = function() return {} end,
+        get_return_type = function() return { get_name = function() return "Boolean" end } end,
+        call = function() return fn() end,
+    }
+    local base = ft.get_method
+    ft.get_method = function(self, name)
+        local want = name:gsub("%(%)$", "")
+        if want == methodName then return m end
+        return base(self, name)
+    end
+end
+
+add_getter(mission, "get_IsPlayingQuest", function() return true end)
+add_getter(mission, "get_IsQuestResult", function() return world.result end)
+add_getter(mission, "get_IsQuestEndShowing", function() return world.ending end)
+add_getter(flow, "get_Loading", function() return world.loading end)
 
 -- ---------------------------------------------------------------------------
 -- harness
@@ -201,143 +165,122 @@ local function check(cond, what)
     end
 end
 local function eq(a, b, what)
-    check(a == b, string.format("%s (got %s, want %s)", tostring(a), tostring(b), what))
+    check(a == b, string.format("%s (got %s, want %s)", tostring(what), tostring(a), tostring(b)))
 end
 
 local function reset_world()
-    world.playing = true
+    world.loading = false
     world.result = false
     world.ending = false
-    world.loading = false
-    world.tool_on_cooldown = true
-    world.tool_can = true
-    world.using = false
-    world.using_type = 0
-    world.resets = {}
-    world.gcd_resets = 0
-    world.cool_arg = 3
+    horn._CoolTime.value = 600
+    horn._CoolTime_PowerUp.value = 480
+    slinger._CoolTime.value = 360
+    root._GlobalCoolTime.value = 90
 end
 
-local function arm()
-    -- what the script does at load, but with the fake world's enum
+local function arm(extra)
     local st = rt.state
-    st.cfg = T.normalize_config({
+    st.cfg = T.normalize_config(extra or {
         enabled = true,
         preset = "horn_attack",
-        tick_interval_frames = 1,
-        tools = { Horn_AtkUp = { mode = "cooldown" } },
-    }, { "Horn_AtkUp" })
-    st.tool_values = { { name = "Horn_AtkUp", value = 3 } }
-    st.manager = manager
-    st.manager_type = "app.mcOtomoToolManager"
+        apply_interval_frames = 1,
+        tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 90 } },
+    }, { "HORN_ATKUP", "SLINGER" })
+    st.param_root = nil
+    st.param_fields = {}
+    st.params = {}
+    st.original = {}
+    st.original_global = nil
+    st.param_root = nil
     st.frame = 0
-    st.last_plan = ""
+    st.last_writes = ""
 end
 
-local function frame() rt.tick() end
-local function frames(n) for _ = 1, n do rt.tick() end end
+local function run() rt.apply_tuning() end
 
 -- ---------------------------------------------------------------------------
-group("resets when the game says the tool is on cooldown")
+group("the horn's 600 s cooldown is written down to the configured value")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm(); frame()
-eq(#world.resets, 1, "one reset")
-eq(world.resets[1], 3, "the horn's enum value")
-eq(world.gcd_resets, 1, "global cooldown reset once")
+reset_world(); arm(); run()
+eq(horn._CoolTime.value, 90, "_CoolTime written")
+eq(horn._CoolTime_PowerUp.value, 90, "_CoolTime_PowerUp kept in step")
+eq(root._GlobalCoolTime.value, 90, "global cooltime untouched by default")
+eq(slinger._CoolTime.value, 360, "unconfigured tool untouched")
+eq(rt.state.original.HORN_ATKUP, 600, "original remembered for restore")
 
 -- ---------------------------------------------------------------------------
-group("does nothing when the tool is already ready")
+group("already correct means no write")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm()
-world.tool_on_cooldown = false
-frames(3)
-eq(#world.resets, 0, "no reset while ready")
-eq(world.gcd_resets, 0, "no gcd reset while ready")
+reset_world(); arm(); run()
+local before = horn._CoolTime.value
+run()
+eq(horn._CoolTime.value, before, "second run changes nothing")
+eq(rt.state.last_writes, "", "no write reported on the second run")
 
 -- ---------------------------------------------------------------------------
-group("never touches the tool that is being used")
+group("write gate")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm()
-world.using = true
-world.using_type = 3
-frames(3)
-eq(#world.resets, 0, "no reset during a cast")
+reset_world(); arm(); world.loading = true; run()
+eq(horn._CoolTime.value, 600, "loading blocks the write")
+
+reset_world(); arm(); world.result = true; run()
+eq(horn._CoolTime.value, 600, "results block the write")
+
+reset_world(); arm(); world.ending = true; run()
+eq(horn._CoolTime.value, 600, "end screen blocks the write")
 
 -- ---------------------------------------------------------------------------
-group("unknown live state means no write")
+group("disabled / off tool")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm()
-world.cool_arg = 99          -- isCoolTimeOut returns nil for our tool
-frames(3)
-eq(#world.resets, 0, "nil state is not treated as 'on cooldown'")
+reset_world(); arm({ enabled = false, tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 90 } } })
+run()
+eq(horn._CoolTime.value, 600, "disabled mod writes nothing")
+
+reset_world(); arm({ enabled = true, tools = { HORN_ATKUP = { mode = "off", cooltime_sec = 90 } } })
+run()
+eq(horn._CoolTime.value, 600, "off tool is not written")
 
 -- ---------------------------------------------------------------------------
-group("quest gates")
+group("global cooldown is opt-in")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm()
-world.result = true
-frame()
-eq(#world.resets, 0, "results screen blocks")
-
-reset_world(); arm()
-world.ending = true
-frame()
-eq(#world.resets, 0, "end screen blocks")
-
-reset_world(); arm()
-world.loading = true
-frame()
-eq(#world.resets, 0, "loading blocks")
-
-reset_world(); arm()
-world.playing = false
-frame()
-eq(#world.resets, 0, "hub blocks")
-eq(rt.state.manager, nil, "the manager pointer is dropped outside a quest")
+reset_world(); arm({
+    enabled = true,
+    global_cooltime_sec = 30,
+    tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 90 } },
+})
+run()
+eq(root._GlobalCoolTime.value, 30, "global cooltime written when configured")
+eq(rt.state.original_global, 90, "original global remembered")
 
 -- ---------------------------------------------------------------------------
-group("disabled mod")
+group("restore puts the shipping values back")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm()
-rt.state.cfg.enabled = false
-frames(3)
-eq(#world.resets, 0, "disabled means zero writes")
-
--- ---------------------------------------------------------------------------
-group("mode off")
--- ---------------------------------------------------------------------------
-
-reset_world(); arm()
-rt.state.cfg.tools.Horn_AtkUp.mode = "off"
-frames(3)
-eq(#world.resets, 0, "an off tool is never reset")
-
--- ---------------------------------------------------------------------------
-group("global cooldown toggle")
--- ---------------------------------------------------------------------------
-
-reset_world(); arm()
-rt.state.cfg.reset_global_cooldown = false
-frame()
-eq(#world.resets, 1, "tool still reset")
-eq(world.gcd_resets, 0, "gcd left alone when the toggle is off")
+reset_world()
+arm({ enabled = true, global_cooltime_sec = 30,
+      tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 90 } } })
+run()
+rt.restore_originals()
+eq(horn._CoolTime.value, 600, "horn restored")
+eq(horn._CoolTime_PowerUp.value, 600, "power-up variant restored")
+eq(root._GlobalCoolTime.value, 90, "global restored")
 
 -- ---------------------------------------------------------------------------
 group("tick schedule")
 -- ---------------------------------------------------------------------------
 
-reset_world(); arm()
-rt.state.cfg.tick_interval_frames = 30
-frames(29)
-eq(#world.resets, 0, "nothing before the interval")
-frame()
-eq(#world.resets, 1, "one write on the interval frame")
+reset_world()
+arm({ enabled = true, apply_interval_frames = 30,
+      tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 90 } } })
+for _ = 1, 29 do rt.tick() end
+eq(horn._CoolTime.value, 600, "nothing before the interval")
+rt.tick()
+eq(horn._CoolTime.value, 90, "written on the interval frame")
 
 -- ---------------------------------------------------------------------------
 -- summary
