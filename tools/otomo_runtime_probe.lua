@@ -23,7 +23,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.1.0"
+local VERSION = "0.1.2"
 local TAG = "[OtomoRuntimeProbe]"
 local OUT = "otomo_runtime_probe.json"
 local OUT_TYPES = "otomo_runtime_probe_types.json"
@@ -486,8 +486,30 @@ local TOOLS = {
     { "MULTI_HIT_BOOMERANG", 13 },
 }
 
+-- Hook args arrive as raw pointers on this build, so convert explicitly.
+-- to_managed_object is only called on a non-nil value that the hook itself
+-- produced, and the result is validated before anything calls a method on it.
+local function resolve_captured()
+    if captured == nil then return nil, "nil" end
+    if is_obj(captured) then return captured, "direct" end
+    if type(captured) == "number" and type(sdk.to_ptr) == "function" then
+        local p = safe(sdk.to_ptr, captured)
+        if p ~= nil and type(sdk.to_managed_object) == "function" then
+            local obj = safe(sdk.to_managed_object, p)
+            if obj ~= nil and is_obj(obj) then return obj, "to_ptr+to_managed_object" end
+        end
+    end
+    if type(sdk.to_managed_object) == "function" then
+        local obj = safe(sdk.to_managed_object, captured)
+        if obj ~= nil and is_obj(obj) then return obj, "to_managed_object" end
+    end
+    return nil, "not convertible"
+end
+
 local function report_live()
     local out = { probe_version = VERSION, hook = hook_state }
+    out.captured_lua_type = captured ~= nil and type(captured) or nil
+    out.captured_tostring = captured ~= nil and tostring(captured) or nil
     if captured == nil then
         out.reason = "no instance captured yet (stay in a quest a few seconds)"
         json.dump_file(OUT, out)
@@ -495,7 +517,16 @@ local function report_live()
         return
     end
 
-    out.captured = true
+    local obj, how = resolve_captured()
+    out.captured = obj ~= nil
+    out.resolved_by = how
+    if obj == nil then
+        out.reason = "captured a value but could not convert it to a managed object"
+        json.dump_file(OUT, out)
+        lastStatus = "captured but not convertible (" .. tostring(how) .. ")"
+        return
+    end
+    captured = obj
     out.type = type_name(captured)
     out.is_object = is_obj(captured)
 
