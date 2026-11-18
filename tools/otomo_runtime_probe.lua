@@ -23,7 +23,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.1.3"
+local VERSION = "0.1.4"
 local TAG = "[OtomoRuntimeProbe]"
 local OUT = "otomo_runtime_probe.json"
 local OUT_TYPES = "otomo_runtime_probe_types.json"
@@ -445,6 +445,7 @@ end
 
 local captured = nil
 local captured_alt = nil
+local hook_args = nil
 local hook_state = "not installed"
 
 local function install_hook()
@@ -462,6 +463,8 @@ local function install_hook()
             if captured == nil and args ~= nil then
                 captured = args[2]
                 captured_alt = args[1]
+                -- raw snapshot only; nothing is called on these here
+                hook_args = { args[1], args[2], args[3], args[4], args[5] }
             end
         end, function() end)
         return true
@@ -513,15 +516,55 @@ local function try_convert(v, label)
 end
 
 local function resolve_captured()
+    local function usable(obj)
+        if obj == nil then return false end
+        return safe(function() return obj:get_type_definition() end) ~= nil
+    end
     local obj, how = try_convert(captured, "args[2]")
-    if obj ~= nil then return obj, how end
-    return try_convert(captured_alt, "args[1]")
+    if usable(obj) then return obj, how end
+    obj, how = try_convert(captured_alt, "args[1]")
+    if usable(obj) then return obj, how end
+    for i, v in ipairs(hook_args or {}) do
+        local o, h = try_convert(v, "args[" .. i .. "]")
+        if usable(o) then return o, h end
+    end
+    return nil, "no captured argument has a type definition"
 end
 
 
 
+-- What is this value, really? No method calls beyond type reflection.
+local function describe_value(v)
+    if v == nil then return nil end
+    local rec = { lua_type = type(v), tostring = tostring(v) }
+    rec.is_object = is_obj(v)
+    local td = safe(function() return v:get_type_definition() end)
+    if td ~= nil then
+        rec.has_type_def = true
+        rec.type = safe(function() return td:get_full_name() end)
+        local ms = safe(function() return td:get_methods() end)
+        rec.method_count = ms and #ms or 0
+        local fs = safe(function() return td:get_fields() end)
+        rec.field_count = fs and #fs or 0
+    else
+        rec.has_type_def = false
+        if rec.is_object and type(sdk.to_managed_object) == "function" then
+            local obj = safe(sdk.to_managed_object, v)
+            local td2 = obj and safe(function() return obj:get_type_definition() end)
+            if td2 ~= nil then
+                rec.retry_type = safe(function() return td2:get_full_name() end)
+            end
+        end
+    end
+    return rec
+end
+
 local function report_live()
     local out = { probe_version = VERSION, hook = hook_state }
+    out.args = {}
+    for i, v in ipairs(hook_args or {}) do
+        out.args[i] = describe_value(v)
+    end
     out.captured_lua_type = captured ~= nil and type(captured) or nil
     out.captured_tostring = captured ~= nil and tostring(captured) or nil
     if captured == nil then
