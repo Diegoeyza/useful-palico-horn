@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0 — 2026-11-18
+
+The counter found the right signal (`app.cOtomoConditionManager` under the
+otomo's `<StatusManager>`) and measured **1 use in 7.6 min** with a 90 s
+cooldown — the ceiling was ~6. So the cooldown is no longer the limiter: the
+AI's desire is.
+
+- **Tier C: `Quiet the other tools`** (off by default). Raises `_CoolTime` on
+  every tool you did *not* pick to `quiet_cooltime_sec` (default 3600), so the
+  Palico's choice has fewer alternatives. Same safe data mechanism, opposite
+  direction. Turning the toggle off restores the previous values immediately
+  (`revert_quiet`), and the tuned tools are never touched.
+- **Quest-scoped metrics**: `uses_playing`, `quest_observed_sec` and
+  `uses_per_10min`, so hub time no longer dilutes the number. The panel shows
+  uses per 10 minutes of actual quest time.
+- `Restore original cooltimes` now also covers quieted tools.
+- Tests: 94 logic + 28 pipeline = 122.
+
 ## 0.3.1 — 2026-11-18
 
 The first counter resolved `app.cOtomoConditionManager:isActiveAttackUp` and read

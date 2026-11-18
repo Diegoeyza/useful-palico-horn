@@ -24,9 +24,9 @@ questions; these are facts now, not assumptions:
 1. Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`.
 2. REFramework → Script → Reset scripts.
 3. Insert → Script Generated UI → **Otomo Tools**. The title must read
-   `v0.3.1`; if it does not, the file did not reach the game.
-4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.3.1 (…)`.
-5. `otomo_tools_trace.json` shows `loaded v0.3.1 … tools=14` and, once in the
+   `v0.4.0`; if it does not, the file did not reach the game.
+4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.4.0 (…)`.
+5. `otomo_tools_trace.json` shows `loaded v0.4.0 … tools=14` and, once in the
    hub or a quest, `param root resolved (N fields)`.
 
 ## 2. The write lands
@@ -70,6 +70,13 @@ v0.3.0 measures it for you — no need to count by eye.
    `reframework/data/otomo_counter.json`.
 4. Expected: **4–6 uses** in 10 minutes instead of ~1, and `uptime_pct`
    roughly 10–20 % (the buff lasts ~8.5 s per use).
+
+**Measured 2026-11-18 (v0.3.1):** 1 use in 7.6 min with a 90 s cooldown — the
+cooldown was no longer the limiter. That is what `Quiet the other tools` is for:
+enable it, hunt again, and compare `uses_per_10min` in the counter JSON. Expect
+it to rise; if it does not, the limit is the AI's desire table itself
+(`cSituationDesireData` / `DesireGroupPackages`), which is the next code change,
+not a config one.
 
 The counter reads the buff, not the tool. `otomo_counter.json` now lists every
 signal it found as a separate `channels[]` entry, sorted by uses, because the

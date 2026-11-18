@@ -205,6 +205,32 @@ eq(plan[1].name, "HORN_ATKUP", "sorted first")
 eq(plan[2].name, "SLINGER", "sorted second")
 
 -- ---------------------------------------------------------------------------
+group("quiet the other tools (Tier C)")
+-- ---------------------------------------------------------------------------
+
+eq(T.normalize_config(nil, NAMES).quiet_others, false, "quieting is off by default")
+eq(T.normalize_config(nil, NAMES).quiet_cooltime_sec, 3600, "quiet target default")
+eq(T.normalize_config({ quiet_cooltime_sec = 5 }, NAMES).quiet_cooltime_sec, 60,
+    "quiet target clamped low")
+eq(T.normalize_config({ quiet_cooltime_sec = 99999 }, NAMES).quiet_cooltime_sec, 3600,
+    "quiet target clamped high")
+
+local qc = { quiet_others = true, tools = {
+    HORN_ATKUP = { mode = "tune", cooltime_sec = 90 },
+    SLINGER = { mode = "off" },
+} }
+local qlist = T.quiet_targets(qc, { "HORN_ATKUP", "SLINGER", "TRAP_FLASH" })
+local function has(list, name)
+    for _, v in ipairs(list) do if v == name then return true end end
+    return false
+end
+check(has(qlist, "SLINGER"), "an off tool is quieted")
+check(has(qlist, "TRAP_FLASH"), "an unlisted live tool is quieted")
+check(not has(qlist, "HORN_ATKUP"), "the tuned tool is never quieted")
+eq(#T.quiet_targets({ quiet_others = false, tools = qc.tools }, { "SLINGER" }), 0,
+    "nothing is quieted when the toggle is off")
+
+-- ---------------------------------------------------------------------------
 group("horn counter (read-only, pure transitions)")
 -- ---------------------------------------------------------------------------
 

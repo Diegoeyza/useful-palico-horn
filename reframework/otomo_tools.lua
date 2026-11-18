@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.3.1"
+local VERSION = "0.4.0"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -385,6 +385,8 @@ local DEFAULT_CONFIG = {
     preset = "horn_attack",
     apply_interval_frames = 300,     -- how often to re-check/write (~5 s at 60 fps)
     global_cooltime_sec = 0,         -- 0 = leave _GlobalCoolTime alone
+    quiet_others = false,            -- push the tools you did NOT pick out of the way
+    quiet_cooltime_sec = 3600,       -- how far out (seconds)
     debug = false,
     tools = {},                      -- [enum member] = { mode = "tune"|"off", cooltime_sec = n }
 }
@@ -434,6 +436,9 @@ local function normalize_config(raw, live_names)
         cfg.apply_interval_frames = n
     end
     cfg.global_cooltime_sec = clamp_sec(raw.global_cooltime_sec, 0)
+    if raw.quiet_others ~= nil then cfg.quiet_others = raw.quiet_others == true end
+    cfg.quiet_cooltime_sec = clamp_sec(raw.quiet_cooltime_sec, 3600)
+    if cfg.quiet_cooltime_sec < 60 then cfg.quiet_cooltime_sec = 60 end
     if raw.debug ~= nil then cfg.debug = raw.debug == true end
 
     local known = {}
@@ -496,6 +501,21 @@ local function plan_tuning(cfg, current)
     return out
 end
 
+-- Tools that are NOT the ones you picked. "Quieting" them raises their
+-- cooldown, so the Palico's own choice has fewer alternatives — the picked
+-- tool's share rises without touching the AI's desire tables.
+local function quiet_targets(cfg, live_names)
+    local out = {}
+    if not cfg or cfg.quiet_others ~= true then return out end
+    for _, name in ipairs(live_names or {}) do
+        local entry = (cfg.tools or {})[name]
+        if not entry or entry.mode ~= "tune" then
+            out[#out + 1] = name
+        end
+    end
+    return out
+end
+
 -- Count uses from a boolean signal. Pure: no game calls, so it is testable
 -- offline. An unknown signal (nil) never changes the state.
 local function step_counter(c, active, now, label)
@@ -530,6 +550,7 @@ M._test = {
     should_tick = should_tick,
     write_gate_ok = write_gate_ok,
     plan_tuning = plan_tuning,
+    quiet_targets = quiet_targets,
     param_field_for = param_field_for,
     step_counter = step_counter,
     wrap_text = wrap_text,
@@ -807,6 +828,7 @@ end
 -- (cOtomoConditionManager turned out to be the Palico's own status, not the
 -- buff it grants the hunter), so count them all and let the data decide.
 local channels = {}
+local observation = { quest_sec = 0, last_now = nil }
 
 local function channel_count()
     local n = 0
@@ -834,6 +856,7 @@ local function counter_snapshot()
         list[#list + 1] = {
             type = ch.type, method = ch.method, path = ch.path,
             uses = ch.c.uses,
+            uses_playing = ch.c.uses_playing or 0,
             uptime_sec = ch.c.uptime,
             observed_sec = ch.c.observed,
             last_use = ch.c.last_at,
@@ -842,11 +865,16 @@ local function counter_snapshot()
     end
     table.sort(list, function(a, b) return (a.uses or 0) > (b.uses or 0) end)
     local best = best_channel()
+    local uses_playing = best and (best.c.uses_playing or 0) or 0
     return {
         version = VERSION,
         uses = best and best.c.uses or 0,
+        uses_playing = uses_playing,
         uptime_sec = best and best.c.uptime or 0,
         observed_sec = best and best.c.observed or 0,
+        quest_observed_sec = observation.quest_sec,
+        uses_per_10min = observation.quest_sec > 0
+            and (math.floor(uses_playing / observation.quest_sec * 6000 + 0.5) / 10) or nil,
         uptime_pct = (best and best.c.observed or 0) > 0
             and (math.floor((best.c.uptime / best.c.observed) * 1000 + 0.5) / 10) or nil,
         last_use = best and best.c.last_at or nil,
@@ -855,6 +883,7 @@ local function counter_snapshot()
         playing = state.last_playing,
         horn_cooltime = state.params.HORN_ATKUP
             and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil,
+        quiet_others = state.cfg and state.cfg.quiet_others or false,
         channels = list,
     }
 end
@@ -963,6 +992,14 @@ local function update_counter()
     local flow = quest_flow()
     state.last_playing = flow.playing
 
+    if type(now) == "number" and type(observation.last_now) == "number" then
+        local d = now - observation.last_now
+        if d > 0 and flow.playing then
+            observation.quest_sec = observation.quest_sec + d
+        end
+    end
+    if type(now) == "number" then observation.last_now = now end
+
     local wrote = false
     for _, ch in pairs(channels) do
         local active = read_channel(ch)
@@ -972,6 +1009,9 @@ local function update_counter()
             while #ch.c.events > 50 do table.remove(ch.c.events, 1) end
             wrote = true
             if ev.kind == "start" then
+                if flow.playing then
+                    ch.c.uses_playing = (ch.c.uses_playing or 0) + 1
+                end
                 local ct = state.params.HORN_ATKUP
                     and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
                 trace(string.format("%s:%s #%d (cooltime=%s)",
@@ -1102,6 +1142,52 @@ local function apply_tuning()
         end
     end
     state.last_writes = table.concat(writes, ", ")
+
+    -- Tier C: quiet the tools that were not picked. Same mechanism, opposite
+    -- direction — fewer alternatives is what makes "more likely" true when the
+    -- cooldown is no longer the limiter.
+    local quieted = {}
+    for _, name in ipairs(quiet_targets(cfg, state.live_names)) do
+        local obj = params_object_for(name)
+        if obj ~= nil then
+            local cur = field_value(obj, "_CoolTime")
+            if type(cur) == "number" then
+                if state.original[name] == nil then state.original[name] = cur end
+                if cur ~= cfg.quiet_cooltime_sec then
+                    write_number(obj, "_CoolTime", cfg.quiet_cooltime_sec)
+                    write_number(obj, "_CoolTime_PowerUp", cfg.quiet_cooltime_sec)
+                    quieted[#quieted + 1] = name
+                end
+            end
+        end
+    end
+    if #quieted > 0 then
+        trace("quieted " .. #quieted .. " other tool(s) to " .. cfg.quiet_cooltime_sec .. "s")
+        state.last_writes = state.last_writes .. (#writes > 0 and "; " or "")
+            .. "quieted " .. #quieted
+    end
+end
+
+-- Put back the tools that were quieted but are no longer meant to be (toggle
+-- turned off), without touching the ones the user is actively tuning.
+local function revert_quiet()
+    local cfg = state.cfg
+    if not cfg then return end
+    local restored = 0
+    for name, obj in pairs(state.params) do
+        local entry = cfg.tools[name]
+        if (not entry or entry.mode ~= "tune") and state.original[name] ~= nil then
+            local cur = field_value(obj, "_CoolTime")
+            if type(cur) == "number" and cur ~= state.original[name] then
+                write_number(obj, "_CoolTime", state.original[name])
+                write_number(obj, "_CoolTime_PowerUp", state.original[name])
+                restored = restored + 1
+            end
+        end
+    end
+    if restored > 0 then
+        trace("reverted " .. restored .. " quieted tool(s)")
+    end
 end
 
 local function tick()
@@ -1174,6 +1260,18 @@ local function draw_body()
     changed, state.cfg.enabled = imgui.checkbox("Enabled", state.cfg.enabled)
     if changed then save_config() end
 
+    local was_quiet = state.cfg.quiet_others
+    changed, state.cfg.quiet_others =
+        imgui.checkbox("Quiet the other tools (raises their cooldown)", state.cfg.quiet_others)
+    if changed then
+        save_config()
+        if was_quiet and not state.cfg.quiet_others then revert_quiet() end
+        trace("quiet_others -> " .. tostring(state.cfg.quiet_others))
+    end
+    if state.cfg.quiet_others then
+        imgui.text("  other tools -> " .. tostring(state.cfg.quiet_cooltime_sec) .. " s")
+    end
+
     imgui.text("Preset: " .. tostring(state.cfg.preset))
     for _, pname in ipairs({ "horn_attack", "horn_both", "healing" }) do
         if imgui.button(pname) then
@@ -1238,11 +1336,21 @@ local function draw_body()
         end
         imgui.text(string.format("horn uses: %d   uptime: %s%%   last: %s",
             uses, tostring(pct), tostring(best and best.c.last_at or "-")))
+        imgui.text(string.format("in quests: %d uses over %d s%s",
+            best and (best.c.uses_playing or 0) or 0,
+            math.floor(observation.quest_sec),
+            observation.quest_sec > 0
+                and string.format("  (= %s per 10 min)",
+                    tostring(math.floor(((best and best.c.uses_playing or 0)
+                        / observation.quest_sec * 6000 + 0.5) / 10)))
+                or ""))
         imgui.text("best signal: " .. tostring(best and (best.type .. ":" .. best.method) or "-")
             .. "   (" .. channel_count() .. " channels)")
     end
     if imgui.button("Reset counter") then
         reset_channels()
+        observation.quest_sec = 0
+        observation.last_now = nil
         save_counter()
     end
 
@@ -1281,9 +1389,12 @@ M._test._rt = {
     restore_originals = restore_originals,
     quest_flow = quest_flow,
     channels = channels,
+    observation = observation,
     update_counter = update_counter,
     reset_channels = reset_channels,
     discover_channels = discover_channels,
+    quiet_targets = quiet_targets,
+    revert_quiet = revert_quiet,
 }
 
 if _G.OTOMO_TOOLS_TEST then

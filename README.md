@@ -53,6 +53,25 @@ does not use it.
 
 Every tool also has `-30` / `+30` / `tune`|`off` controls in the panel.
 
+**Quiet the other tools** (off by default) is the second lever: it raises the
+cooldown of every tool you did *not* pick, so the Palico has fewer alternatives
+and picks yours more often. It is a data edit too — turning the toggle off puts
+the previous values straight back. It does mean the Palico will use its healing
+and traps far less while it is on.
+
+## Measuring it
+
+The panel counts every time the Attack-Up buff goes off → on:
+
+```
+horn uses: 4   uptime: 12.3%   last: 17:22:41
+in quests: 4 uses over 610 s  (= 3.9 per 10 min)
+```
+
+`reframework/data/otomo_counter.json` has the same numbers per candidate signal
+(sorted by uses), so if the counter ever targets the wrong object it is visible
+rather than silent.
+
 ## Layout
 
 ```

@@ -192,6 +192,8 @@ local function arm(extra)
     st.original = {}
     st.original_global = nil
     st.param_root = nil
+    st.tool_values = { { name = "HORN_ATKUP", value = 2 }, { name = "SLINGER", value = 4 } }
+    st.live_names = { "HORN_ATKUP", "SLINGER" }
     st.frame = 0
     st.last_writes = ""
 end
@@ -292,6 +294,24 @@ end
 rec = rt.write_number(dead, "_CoolTime", 30)
 eq(rec.strategy, "failed", "a refusing field is reported as failed")
 eq(rec.after, 600, "the read-back shows the truth")
+
+-- ---------------------------------------------------------------------------
+group("quieting the other tools, and reverting it")
+-- ---------------------------------------------------------------------------
+
+reset_world()
+arm({ enabled = true, quiet_others = true, quiet_cooltime_sec = 1200,
+      tools = { HORN_ATKUP = { mode = "tune", cooltime_sec = 90 } } })
+run()
+eq(horn._CoolTime.value, 90, "the picked tool is tuned")
+eq(slinger._CoolTime.value, 1200, "the other tool is quieted")
+eq(rt.state.original.SLINGER, 360, "its original was remembered")
+
+-- Turning the toggle off must put the quieted tool back.
+rt.state.cfg.quiet_others = false
+rt.revert_quiet()
+eq(slinger._CoolTime.value, 360, "quieted tool restored on toggle-off")
+eq(horn._CoolTime.value, 90, "the tuned tool is left alone by the revert")
 
 -- ---------------------------------------------------------------------------
 group("restore puts the shipping values back")
