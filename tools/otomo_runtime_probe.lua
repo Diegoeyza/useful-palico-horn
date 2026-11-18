@@ -26,6 +26,7 @@ local imgui = imgui
 local VERSION = "0.1.0"
 local TAG = "[OtomoRuntimeProbe]"
 local OUT = "otomo_runtime_probe.json"
+local OUT_TYPES = "otomo_runtime_probe_types.json"
 
 local ALREADY_LOADED = _G.OTOMO_RUNTIME_PROBE_LOADED == true
 _G.OTOMO_RUNTIME_PROBE_LOADED = true
@@ -55,6 +56,34 @@ local function safe_str(v)
     end
     if t == "number" or t == "boolean" then return v end
     return tostring(v)
+end
+
+
+-- this build has no imgui.text_wrapped (only text / text_colored)
+local function wrap_text(text, width)
+    local out = {}
+    text = tostring(text or "")
+    width = math.max(1, tonumber(width) or 76)
+    local line = ""
+    for word in text:gmatch("%S+") do
+        if #line == 0 then line = word
+        elseif #line + 1 + #word <= width then line = line .. " " .. word
+        else out[#out + 1] = line line = word end
+        while #line > width do
+            out[#out + 1] = line:sub(1, width)
+            line = line:sub(width + 1)
+        end
+    end
+    if #line > 0 then out[#out + 1] = line end
+    if #out == 0 then out[1] = "" end
+    return out
+end
+
+local function text_wrapped(text, width)
+    if type(imgui.text_wrapped) == "function" then
+        return safe(function() imgui.text_wrapped(text) end)
+    end
+    for _, line in ipairs(wrap_text(text, width)) do imgui.text(line) end
 end
 
 local function type_name(obj)
@@ -270,8 +299,8 @@ local function dump_types()
             end
         end
     end
-    json.dump_file(OUT, out)
-    lastStatus = "types -> " .. OUT
+    json.dump_file(OUT_TYPES, out)
+    lastStatus = "types -> " .. OUT_TYPES
     log.info(TAG .. " " .. lastStatus)
 end
 
@@ -406,29 +435,167 @@ local function find_manager()
 end
 
 -- ---------------------------------------------------------------------------
+-- 3. capture the live instance from a hook
+--
+-- The manager is an ace mini-component: no owner exposes it as a field, so the
+-- bounded walk cannot reach it. A pre-hook on one of its own methods receives
+-- `this` as args[1] — the object we need. The hook only stores the pointer and
+-- calls nothing (MODDING-NOTES 4.8: never dereference a hook argument).
+-- ---------------------------------------------------------------------------
+
+local captured = nil
+local hook_state = "not installed"
+
+local function install_hook()
+    if hook_state == "installed" then return true end
+    local td = safe(sdk.find_type_definition, "app.mcOtomoToolManager")
+    if not td then hook_state = "type not found" return false end
+    local m = safe(function() return td:get_method("updateMain") end)
+        or safe(function() return td:get_method("onCreate") end)
+    if not m then hook_state = "method not found" return false end
+    local ok = safe(function()
+        sdk.hook(m, function(args)
+            -- store only; do not touch the object here
+            if captured == nil and args ~= nil then captured = args[1] end
+        end, function() end)
+        return true
+    end)
+    hook_state = ok and "installed" or "hook failed"
+    log.info(TAG .. " hook " .. tostring(hook_state))
+    return ok == true
+end
+
+local function get_managed_class(mgr, value)
+    if mgr == nil then return nil end
+    local td = safe(function() return mgr:get_type_definition() end)
+    for _, m in ipairs(safe(function() return td and td:get_methods() end) or {}) do
+        if safe(function() return m:get_name() end) == "getOtomoToolManagedClass"
+            and safe(function() return m:get_num_params() end) == 1 then
+            return safe(function() return m:call(mgr, value) end)
+        end
+    end
+    return nil
+end
+
+local TOOLS = {
+    { "INSECT_HEAL_DELIVERY", 0 }, { "SHIELD_PROVOKE", 1 },
+    { "HORN_ATKUP", 2 }, { "HORN_DEFUP", 3 }, { "SLINGER", 4 },
+    { "TRAP_PARALYZE", 5 }, { "INSECT_HEAL_REVIVE", 7 },
+    { "TRAP_FLASH", 8 }, { "STEAL_BOOMERANG", 10 },
+    { "BAD_CONDITIONS_HEAL_DELIVERY", 11 }, { "SET_BOMB", 12 },
+    { "MULTI_HIT_BOOMERANG", 13 },
+}
+
+local function report_live()
+    local out = { probe_version = VERSION, hook = hook_state }
+    if captured == nil then
+        out.reason = "no instance captured yet (stay in a quest a few seconds)"
+        json.dump_file(OUT, out)
+        lastStatus = "not captured yet"
+        return
+    end
+
+    out.captured = true
+    out.type = type_name(captured)
+    out.is_object = is_obj(captured)
+
+    out.fields = {}
+    for _, f in ipairs(field_names(captured)) do
+        out.fields[#out.fields + 1] = { name = f, value = safe_str(field_value(captured, f)) }
+        if #out.fields > 50 then break end
+    end
+
+    local td = safe(function() return captured:get_type_definition() end)
+    out.methods = {}
+    for _, m in ipairs(safe(function() return td and td:get_methods() end) or {}) do
+        local n = safe(function() return m:get_name() end)
+        if n then
+            out.methods[#out.methods + 1] = {
+                name = n,
+                params = safe(function() return m:get_num_params() end),
+            }
+            if #out.methods > 90 then break end
+        end
+    end
+
+    out.tools = {}
+    for _, t in ipairs(TOOLS) do
+        local obj = get_managed_class(captured, t[2])
+        if obj ~= nil then
+            local rec = {
+                name = t[1], value = t[2],
+                type = type_name(obj),
+                cool_time = safe_str(field_value(obj, "_CoolTime")),
+                cool_timer = safe_str(field_value(obj, "_CoolTimeTimer")),
+                stock = safe_str(field_value(obj, "_StockCount")),
+                is_active = safe_str(field_value(obj, "_IsActive")),
+                is_enable = safe_str(field_value(obj, "_IsEnable")),
+            }
+            local otd = safe(function() return obj:get_type_definition() end)
+            rec.methods = {}
+            for _, m in ipairs(safe(function() return otd and otd:get_methods() end) or {}) do
+                local n = safe(function() return m:get_name() end)
+                if n and (n:find("CoolTime") or n:find("Stock") or n:find("canUse")) then
+                    rec.methods[#rec.methods + 1] = {
+                        name = n,
+                        params = safe(function() return m:get_num_params() end),
+                    }
+                end
+            end
+            out.tools[#out.tools + 1] = rec
+        end
+    end
+
+    json.dump_file(OUT, out)
+    lastStatus = string.format("live: %d tools -> %s", #out.tools, OUT)
+    log.info(TAG .. " " .. lastStatus)
+end
+
 -- UI
 -- ---------------------------------------------------------------------------
 
-local function draw_ui()
-    if not imgui.tree_node("Otomo Runtime Probe v" .. VERSION) then return end
+local function draw_body()
     imgui.text("1. Dump types (safe anywhere)")
     if imgui.button("Dump types") then
         local ok, err = pcall(dump_types)
         lastStatus = ok and lastStatus or ("dump failed: " .. tostring(err))
     end
+
     imgui.separator()
-    imgui.text("2. Find the live tool manager (IN A QUEST)")
+    imgui.text("2. Find manager by walking (IN A QUEST)")
     if imgui.button("Find manager") then
         local ok, err = pcall(find_manager)
         lastStatus = ok and lastStatus or ("find failed: " .. tostring(err))
     end
+
     imgui.separator()
-    imgui.text_wrapped("Last: " .. lastStatus)
-    imgui.text("Output: " .. OUT)
-    imgui.tree_pop()
+    imgui.text("3. Capture from the hook (IN A QUEST, ~2 s)")
+    imgui.text("hook: " .. tostring(hook_state) ..
+        (captured ~= nil and ("   captured: " .. tostring(type_name(captured))) or "   captured: -"))
+    if imgui.button("Report live values") then
+        local ok, err = pcall(report_live)
+        lastStatus = ok and lastStatus or ("report failed: " .. tostring(err))
+    end
+
+    imgui.separator()
+    text_wrapped("Last: " .. lastStatus)
+    imgui.text("Outputs: " .. OUT_TYPES .. ", " .. OUT)
+end
+
+-- ImGui needs TreePop for every TreePush; an exception in the body is exactly
+-- how "Missing TreePop()" happens, so the pop is outside the pcall.
+local function draw_ui()
+    if not imgui.tree_node("Otomo Runtime Probe v" .. VERSION) then return end
+    local ok, err = pcall(draw_body)
+    safe(function() imgui.tree_pop() end)
+    if not ok then
+        lastStatus = "draw error: " .. tostring(err)
+        log.info(TAG .. " " .. lastStatus)
+    end
 end
 
 if not ALREADY_LOADED then
+    install_hook()
     re.on_draw_ui(function()
         local ok, err = pcall(draw_ui)
         if not ok then log.info(TAG .. " draw error: " .. tostring(err)) end
