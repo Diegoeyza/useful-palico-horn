@@ -23,7 +23,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.1.4"
+local VERSION = "0.1.5"
 local TAG = "[OtomoRuntimeProbe]"
 local OUT = "otomo_runtime_probe.json"
 local OUT_TYPES = "otomo_runtime_probe_types.json"
@@ -500,7 +500,14 @@ local TOOLS = {
 -- produced, and the result is validated before anything calls a method on it.
 local function try_convert(v, label)
     if v == nil then return nil end
-    if is_obj(v) then return v, label .. ":direct" end
+    -- Always prefer the converted wrapper: the hook hands us a raw pointer,
+    -- and get_type_definition() does not work on it even though
+    -- is_managed_object() reports true.
+    if type(sdk.to_managed_object) == "function" then
+        local obj = safe(sdk.to_managed_object, v)
+        if obj ~= nil then return obj, label .. ":to_managed_object" end
+    end
+    if is_obj(v) then return v, label .. ":raw" end
     if type(v) == "number" and type(sdk.to_ptr) == "function" then
         local p = safe(sdk.to_ptr, v)
         if p ~= nil and type(sdk.to_managed_object) == "function" then
