@@ -1,8 +1,11 @@
 #!/bin/sh
 # Run the offline tests under Lua 5.1 (the game's LuaJIT is 5.1).
 #
-#   tests/logic_test.lua   pure logic: config normalisation, presets, tick
-#                          schedule, quest gate, reset planning, round trip
+#   tests/logic_test.lua     pure logic: config normalisation, presets, tick
+#                            schedule, quest gate, reset planning, round trip
+#   tests/pipeline_test.lua  the real tick() against a fake REFramework world:
+#                            gating, guarded calls, the tri-state "unknown means
+#                            no write" rule, and the manager dropped at quest end
 #
 # LUA=/path/to/lua ./tests/run.sh
 set -e
@@ -50,7 +53,7 @@ else
 fi
 
 status=0
-for test_file in tests/logic_test.lua; do
+for test_file in tests/logic_test.lua tests/pipeline_test.lua; do
     echo "== $test_file"
     "$LUA_BIN" "$test_file" || status=1
 done

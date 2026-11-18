@@ -437,6 +437,7 @@ M._test = {
     active_names = active_names,
     presets = PRESETS,
     modes = MODES,
+    _rt = nil,   -- filled in below, once the runtime exists
 }
 
 -- ---------------------------------------------------------------------------
@@ -572,8 +573,11 @@ local function snapshot_tools(filter)
             local ok = call_one(mgr, "isCoolTimeOut", t.value)
             local can = call_one(mgr, "canUseOtomoTool", t.value)
             live[t.name] = {
-                ok = ok == true,
-                can = can == true,
+                -- tri-state on purpose: true = ready, false = on cooldown,
+                -- nil = the call failed or the method is missing. Only a real
+                -- `false` may lead to a write.
+                ok = ok,
+                can = can,
                 using = using and current == t.value or false,
             }
         end
@@ -587,16 +591,26 @@ local function tick()
     if not state.cfg then return end
     if not should_tick(state.frame, state.cfg.tick_interval_frames) then return end
 
-    if not state.manager then
-        -- retry a few times a minute; the otomo appears with the quest
-        if state.frame % 300 == 0 then resolve_manager() end
-        if not state.manager then return end
+    local flow = quest_flow()
+
+    -- Never hold a tool-manager pointer across a quest boundary: the Palico is
+    -- recreated per quest, and calling into a freed managed object is an
+    -- uncatchable crash.
+    if not flow.playing then
+        state.manager = nil
+        state.manager_type = nil
+        state.last_plan = ""
+        return
     end
 
-    local flow = quest_flow()
     if not quest_gate_ok(flow) then
         state.last_plan = ""
         return
+    end
+
+    if not state.manager then
+        if state.frame % 60 == 0 then resolve_manager() end   -- ~1/s while in a quest
+        if not state.manager then return end
     end
 
     local live = snapshot_tools(active_names(state.cfg))
@@ -631,6 +645,21 @@ local function mode_button(name, mode)
         save_config()
         trace("mode " .. name .. " -> " .. entry.mode)
     end
+end
+
+local ui = { frame = -999, flow = nil, live = {} }
+
+-- The panel redraws at screen rate; native per-tool getters should not. One
+-- refresh per 30 frames is plenty and keeps the call surface small.
+local function ui_reads()
+    if state.frame - ui.frame >= 30 then
+        ui.frame = state.frame
+        ui.flow = quest_flow()
+        local filter = active_names(state.cfg)
+        if state.cfg.verify_all_tools then filter = nil end
+        ui.live = state.manager and snapshot_tools(filter) or {}
+    end
+    return ui
 end
 
 local function draw_ui()
@@ -674,15 +703,13 @@ local function draw_ui()
         end
     else
         imgui.text("manager: " .. tostring(state.manager_type))
-        local flow = quest_flow()
+        local flow = ui_reads().flow or {}
         imgui.text(string.format("flow playing=%s result=%s loading=%s",
             tostring(flow.playing), tostring(flow.result), tostring(flow.loading)))
     end
 
     imgui.separator()
-    local filter = active_names(state.cfg)
-    if state.cfg.verify_all_tools then filter = nil end
-    local live = state.manager and snapshot_tools(filter) or {}
+    local live = ui_reads().live or {}
     for _, t in ipairs(state.tool_values or {}) do
         local entry = state.cfg.tools[t.name] or { mode = "off" }
         local st = live[t.name] or {}
@@ -702,6 +729,16 @@ end
 -- ---------------------------------------------------------------------------
 -- registration
 -- ---------------------------------------------------------------------------
+
+M._test._rt = {
+    state = state,
+    tick = tick,
+    resolve_manager = resolve_manager,
+    snapshot_tools = snapshot_tools,
+    quest_flow = quest_flow,
+    load_tool_enum = load_tool_enum,
+    load_config = load_config,
+}
 
 if _G.OTOMO_TOOLS_TEST then
     return M
