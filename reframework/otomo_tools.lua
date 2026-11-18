@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.4.1"
+local VERSION = "0.5.0"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -387,6 +387,9 @@ local DEFAULT_CONFIG = {
     global_cooltime_sec = 0,         -- 0 = leave _GlobalCoolTime alone
     quiet_others = false,            -- push the tools you did NOT pick out of the way
     quiet_cooltime_sec = 3600,       -- how far out (seconds)
+    force_use = false,               -- experimental: ask the game to use the tool
+    force_interval_frames = 1200,    -- minimum gap between requests (~20 s)
+    force_tool = "HORN_ATKUP",
     debug = false,
     tools = {},                      -- [enum member] = { mode = "tune"|"off", cooltime_sec = n }
 }
@@ -439,6 +442,13 @@ local function normalize_config(raw, live_names)
     if raw.quiet_others ~= nil then cfg.quiet_others = raw.quiet_others == true end
     cfg.quiet_cooltime_sec = clamp_sec(raw.quiet_cooltime_sec, 3600)
     if cfg.quiet_cooltime_sec < 60 then cfg.quiet_cooltime_sec = 60 end
+    if raw.force_use ~= nil then cfg.force_use = raw.force_use == true end
+    if type(raw.force_interval_frames) == "number" then
+        local n = math.floor(raw.force_interval_frames)
+        if n < 60 then n = 60 elseif n > 36000 then n = 36000 end
+        cfg.force_interval_frames = n
+    end
+    if type(raw.force_tool) == "string" then cfg.force_tool = raw.force_tool end
     if raw.debug ~= nil then cfg.debug = raw.debug == true end
 
     local known = {}
@@ -516,6 +526,18 @@ local function quiet_targets(cfg, live_names)
     return out
 end
 
+-- Should we ask the game to use the tool this tick? Pure, so it is testable.
+-- Never while the buff is already up, never when the game says it cannot.
+local function force_due(cfg, frame, last_force, can_use, buff_active)
+    if not cfg or cfg.force_use ~= true then return false end
+    if can_use ~= true then return false end
+    if buff_active == true then return false end
+    local interval = tonumber(cfg.force_interval_frames) or 1200
+    if interval < 60 then interval = 60 end
+    if type(last_force) == "number" and frame - last_force < interval then return false end
+    return true
+end
+
 -- Count uses from a boolean signal. Pure: no game calls, so it is testable
 -- offline. An unknown signal (nil) never changes the state.
 local function step_counter(c, active, now, label)
@@ -553,6 +575,7 @@ M._test = {
     quiet_targets = quiet_targets,
     param_field_for = param_field_for,
     step_counter = step_counter,
+    force_due = force_due,
     wrap_text = wrap_text,
     presets = PRESETS,
     modes = MODES,
@@ -594,6 +617,13 @@ local state = {
     buff_type = nil,
     buff_path = nil,
     counter_off = false,
+    mgr_raw = nil,
+    mgr = nil,
+    mgr_type = nil,
+    hook_state = nil,
+    last_force = nil,
+    force_clear_at = nil,
+    buff_now = nil,
     original = {},        -- enum member -> _CoolTime at first sight
     original_global = nil,
     diag_done = false,
@@ -1059,7 +1089,112 @@ local function update_counter()
         end
     end
 
+    local lead = best_channel()
+    state.buff_now = lead ~= nil and lead.c.last_state or nil
+
     if wrote or counter_ticks % 240 == 0 then save_counter() end
+end
+
+-- ---------------------------------------------------------------------------
+-- force use (v0.5.0, experimental)
+--
+-- The manager is an ace mini-component, so it has no reachable owner. A
+-- pre-hook on its own update method hands us `this` as args[2]; that value is a
+-- RAW POINTER, so it must be unwrapped with sdk.to_managed_object before any
+-- reflection (verified 2026-11-18 — is_managed_object() says true but
+-- get_type_definition() returns nothing on the raw value).
+--
+-- Once we hold it, requestForceUseOtomoTool(type) is the game's own "use this
+-- now" request. It is a request, not an action call: the AI still owns the
+-- decision, we only clear its desire objection.
+-- ---------------------------------------------------------------------------
+
+local function install_manager_hook()
+    if state.hook_state ~= nil then return state.hook_state == "installed" end
+    local td = safe(sdk.find_type_definition, "app.mcOtomoToolManager")
+    if not td then state.hook_state = "type not found" return false end
+    local m = safe(function() return td:get_method("updateMain") end)
+        or safe(function() return td:get_method("onCreate") end)
+    if not m then state.hook_state = "method not found" return false end
+    local ok = safe(function()
+        sdk.hook(m, function(args)
+            -- store the raw pointer only; nothing is called on it here
+            if state.mgr_raw == nil and args ~= nil then state.mgr_raw = args[2] end
+        end, function() end)
+        return true
+    end)
+    state.hook_state = ok and "installed" or "hook failed"
+    trace("manager hook: " .. tostring(state.hook_state))
+    return ok == true
+end
+
+local function manager()
+    if state.mgr ~= nil then return state.mgr end
+    local raw = state.mgr_raw
+    if raw == nil then return nil end
+    local obj = nil
+    if type(sdk.to_managed_object) == "function" then
+        obj = safe(sdk.to_managed_object, raw)
+    end
+    if obj == nil then obj = raw end
+    local td = safe(function() return obj:get_type_definition() end)
+    if td == nil then return nil end
+    state.mgr = obj
+    state.mgr_type = safe(function() return td:get_full_name() end)
+    trace("manager captured: " .. tostring(state.mgr_type))
+    return obj
+end
+
+-- Call a method declared with exactly one parameter.
+local function call_int(obj, methodName, value)
+    if obj == nil then return nil, false end
+    local td = safe(function() return obj:get_type_definition() end)
+    if td == nil then return nil, false end
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        if safe(function() return m:get_name() end) == methodName
+            and safe(function() return m:get_num_params() end) == 1 then
+            return safe(function() return m:call(obj, value) end), true
+        end
+    end
+    return nil, false
+end
+
+local function tool_value(name)
+    for _, t in ipairs(state.tool_values or {}) do
+        if t.name == name then return t.value end
+    end
+    return nil
+end
+
+local function force_use_tick()
+    local cfg = state.cfg
+    if not cfg or not cfg.force_use then return end
+
+    local flow = quest_flow()
+    if not flow.playing then return end
+
+    local mgr = manager()
+    if mgr == nil then return end
+
+    local value = tool_value(cfg.force_tool)
+    if value == nil then return end
+
+    -- clear a previous request first
+    if state.force_clear_at ~= nil and state.frame >= state.force_clear_at then
+        call_int(mgr, "resetForceUseOtomoTool", value)
+        state.force_clear_at = nil
+    end
+
+    local can = call_int(mgr, "canUseOtomoTool", value)
+    if not force_due(cfg, state.frame, state.last_force, can == true, state.buff_now) then
+        return
+    end
+
+    state.last_force = state.frame
+    local _, ok = call_int(mgr, "requestForceUseOtomoTool", value)
+    state.force_clear_at = state.frame + 300      -- release after ~5 s
+    trace("force use " .. tostring(cfg.force_tool)
+        .. " (" .. tostring(value) .. ") called=" .. tostring(ok))
 end
 
 -- One-shot diagnostic: what the field is, why the write failed, and whether the
@@ -1240,6 +1375,12 @@ local function tick()
     end
 
     if not state.cfg then return end
+
+    if state.frame % 30 == 0 then
+        local ok2, err2 = pcall(force_use_tick)
+        if not ok2 then log.info(TAG .. " force error: " .. tostring(err2)) end
+    end
+
     if not should_tick(state.frame, state.cfg.apply_interval_frames) then return end
     local ok, err = pcall(apply_tuning)
     if not ok then
@@ -1310,6 +1451,20 @@ local function draw_body()
     end
     if state.cfg.quiet_others then
         imgui.text("  other tools -> " .. tostring(state.cfg.quiet_cooltime_sec) .. " s")
+    end
+
+    changed, state.cfg.force_use =
+        imgui.checkbox("Force use when ready (experimental)", state.cfg.force_use)
+    if changed then
+        save_config()
+        trace("force_use -> " .. tostring(state.cfg.force_use))
+    end
+    if state.cfg.force_use then
+        imgui.text(string.format("  %s every %d s   manager: %s   hook: %s",
+            tostring(state.cfg.force_tool),
+            math.floor((state.cfg.force_interval_frames or 1200) / 60),
+            tostring(state.mgr_type or "not captured"),
+            tostring(state.hook_state or "-")))
     end
 
     imgui.text("Preset: " .. tostring(state.cfg.preset))
@@ -1435,6 +1590,10 @@ M._test._rt = {
     discover_channels = discover_channels,
     quiet_targets = quiet_targets,
     revert_quiet = revert_quiet,
+    manager = manager,
+    install_manager_hook = install_manager_hook,
+    force_use_tick = force_use_tick,
+    force_due = force_due,
 }
 
 if _G.OTOMO_TOOLS_TEST then
@@ -1444,6 +1603,7 @@ end
 if not ALREADY_LOADED then
     load_tool_enum()
     load_config()
+    install_manager_hook()
 
     re.on_draw_ui(function()
         local ok, err = pcall(draw_ui)

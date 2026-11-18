@@ -231,6 +231,19 @@ eq(#T.quiet_targets({ quiet_others = false, tools = qc.tools }, { "SLINGER" }), 
     "nothing is quieted when the toggle is off")
 
 -- ---------------------------------------------------------------------------
+group("force use predicate")
+-- ---------------------------------------------------------------------------
+
+local fc = { force_use = true, force_interval_frames = 1200 }
+check(T.force_due(fc, 5000, nil, true, false), "due when ready, buff down, never forced")
+check(not T.force_due(fc, 5000, nil, false, false), "not due while the game says no")
+check(not T.force_due(fc, 5000, nil, true, true), "not due while the buff is up")
+check(not T.force_due(fc, 1000, 500, true, false), "not due inside the interval")
+check(T.force_due(fc, 1700, 500, true, false), "due once the interval passed")
+check(not T.force_due({ force_use = false }, 5000, nil, true, false), "off by default")
+check(not T.force_due(fc, 5000, nil, nil, false), "unknown can-use is not a yes")
+
+-- ---------------------------------------------------------------------------
 group("horn counter (read-only, pure transitions)")
 -- ---------------------------------------------------------------------------
 
