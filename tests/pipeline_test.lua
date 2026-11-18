@@ -258,6 +258,42 @@ eq(root._GlobalCoolTime.value, 30, "global cooltime written when configured")
 eq(rt.state.original_global, 90, "original global remembered")
 
 -- ---------------------------------------------------------------------------
+group("write strategies (set_field first, then set_data)")
+-- ---------------------------------------------------------------------------
+
+local probe_obj = make_object("app.user_data.Probe", { _CoolTime = entry(600) })
+probe_obj.set_field = function(self, name, value)
+    local e = rawget(self, name)
+    if e ~= nil and type(e) == "table" then e.value = value end
+end
+local rec = rt.write_number(probe_obj, "_CoolTime", 45)
+eq(rec.strategy, "set_field", "set_field is preferred when available")
+eq(probe_obj._CoolTime.value, 45, "value written through set_field")
+
+-- An object with no working setter must report failure, not pretend.
+local dead = make_object("app.user_data.Dead", { _CoolTime = entry(600) })
+dead.get_type_definition = function()
+    local ft = { fields = {} }
+    ft.get_full_name = function() return "app.user_data.Dead" end
+    ft.get_parent_type = function() return nil end
+    ft.get_methods = function() return {} end
+    ft.get_method = function() return nil end
+    ft.get_fields = function()
+        return { {
+            get_name = function() return "_CoolTime" end,
+            get_type = function() return { get_name = function() return "Int32" end } end,
+            is_static = function() return false end,
+            get_data = function() return 600 end,
+            set_data = function() end,      -- silently does nothing
+        } }
+    end
+    return ft
+end
+rec = rt.write_number(dead, "_CoolTime", 30)
+eq(rec.strategy, "failed", "a refusing field is reported as failed")
+eq(rec.after, 600, "the read-back shows the truth")
+
+-- ---------------------------------------------------------------------------
 group("restore puts the shipping values back")
 -- ---------------------------------------------------------------------------
 

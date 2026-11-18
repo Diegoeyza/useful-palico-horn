@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.1 — 2026-11-18
+
+**The catalog write was a no-op and the trace proved it:**
+
+```
+16:35:00 HORN_ATKUP _CoolTime 600 -> 600 (want 90)
+```
+
+`REField:set_data()` returns without error on these `app.user_data` fields but
+changes nothing — exactly the failure mode `MODDING-NOTES.md` §4.3 warns about.
+
+- New write path, verified by read-back after every attempt:
+  1. `obj:set_field(name, value)` (RSZ-aware; the one that works on
+     `via.user_data` elsewhere in this install),
+  2. `REField:set_data(obj, value)`,
+  3. runtime fallback: `mcOtomoToolManager:getOtomoToolManagedClass(type)` →
+     `setCoolTime(seconds)` on the live `cOtomoToolManagedBase`.
+- The strategy that actually worked is now named in the trace
+  (`600 -> 90 via set_field`), so a regression is visible immediately.
+- One-shot diagnostic `otomo_write_test.json`: field type/size/value-type, the
+  value after each strategy, whether the runtime tool manager was found and by
+  which path.
+- Tests: 71 logic + 23 pipeline = 94, now including "set_field wins" and "a
+  refusing field is reported as failed, not as success".
+
 ## 0.2.0 — 2026-11-18
 
 **The probe changed the design.** The Palico's tool cooldowns are plain data, and

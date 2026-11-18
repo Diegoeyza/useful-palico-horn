@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.2.0"
+local VERSION = "0.2.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -151,6 +151,88 @@ local function field_names(obj)
         end
         td = safe(function() return td:get_parent_type() end)
         depth = depth + 1
+    end
+    return out
+end
+
+-- ---------------------------------------------------------------------------
+-- bounded object walk (used to find the runtime tool manager)
+-- ---------------------------------------------------------------------------
+
+local function is_obj(v)
+    if v == nil or type(v) ~= "userdata" then return false end
+    if type(sdk.is_managed_object) == "function" then
+        local ok = safe(sdk.is_managed_object, v)
+        if ok ~= nil then return ok == true end
+    end
+    return true
+end
+
+local function list_length(obj)
+    local n = safe(function() return obj:get_Count() end)
+    if type(n) == "number" then return math.floor(n) end
+    n = safe(function() return obj:get_Size() end)
+    if type(n) == "number" then return math.floor(n) end
+    return nil
+end
+
+local function children_of(obj)
+    local kids = {}
+    local n = list_length(obj)
+    if n then
+        for i = 0, math.min(n - 1, 32) do
+            local v = safe(function() return obj[i] end)
+            if v ~= nil then kids[#kids + 1] = { key = "[" .. i .. "]", value = v } end
+        end
+        return kids
+    end
+    local td = safe(function() return obj:get_type_definition() end)
+    local depth = 0
+    while td and depth < 5 do
+        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+            if not safe(function() return f:is_static() end) then
+                local name = safe(function() return f:get_name() end)
+                if name then
+                    local v = safe(function() return f:get_data(obj) end)
+                    if v ~= nil then kids[#kids + 1] = { key = name, value = v } end
+                end
+            end
+        end
+        td = safe(function() return td:get_parent_type() end)
+        depth = depth + 1
+    end
+    return kids
+end
+
+-- Collect every reachable object whose type name contains `pattern`.
+local function walk_find(root, pattern, maxDepth, maxNodes)
+    local out = {}
+    if root == nil then return out end
+    local queue = { [1] = { obj = root, path = "root", depth = 0 } }
+    local seen = { [root] = true }
+    local nodes, head, tail = 0, 1, 1
+    maxDepth = maxDepth or 4
+    maxNodes = maxNodes or 400
+    while head <= tail and nodes < maxNodes do
+        local item = queue[head]
+        queue[head] = nil
+        head = head + 1
+        nodes = nodes + 1
+        local td = safe(function() return item.obj:get_type_definition() end)
+        local tn = td and safe(function() return td:get_full_name() end) or nil
+        if tn and tn:lower():find(pattern:lower(), 1, true) then
+            out[#out + 1] = { path = item.path, type = tn, obj = item.obj }
+        end
+        if item.depth < maxDepth then
+            for _, k in ipairs(children_of(item.obj)) do
+                local v = k.value
+                if is_obj(v) and not seen[v] then
+                    seen[v] = true
+                    tail = tail + 1
+                    queue[tail] = { obj = v, path = item.path .. "." .. k.key, depth = item.depth + 1 }
+                end
+            end
+        end
     end
     return out
 end
@@ -409,8 +491,12 @@ local state = {
     param_root = nil,
     param_fields = {},
     params = {},          -- enum member -> live param object
+    managed = {},         -- enum member -> runtime cOtomoToolManagedBase
+    tool_manager = nil,
+    tool_manager_path = nil,
     original = {},        -- enum member -> _CoolTime at first sight
     original_global = nil,
+    diag_done = false,
     misses = 0,
     frame = 0,
     last_status = "(idle)",
@@ -475,26 +561,138 @@ local function resolve_param_root()
     return root
 end
 
--- Write a numeric field and report what actually happened. set_data's return
--- value is not trustworthy; the read-back is.
-local function set_number(obj, name, value)
+-- Write a numeric field and report what actually happened. Two strategies,
+-- because set_data silently does nothing on some via.user_data fields
+-- (MODDING-NOTES 4.3 — the API lies; the read-back is the truth).
+local function write_number(obj, name, value)
     local f = field_descriptor(obj, name)
-    if not f then return nil, nil, nil end
-    if safe(function() return f:is_static() end) then return nil, nil, nil end
+    if not f then return nil end
+    if safe(function() return f:is_static() end) then return nil end
     local before = safe(function() return f:get_data(obj) end)
-    if type(before) ~= "number" then return nil, nil, nil end
+    if type(before) ~= "number" then return nil end
 
     local tname = safe(function() return f:get_type():get_name() end) or ""
-    local target = value
-    if tname:lower():find("single") or tname:lower():find("float") then
-        target = value + 0.0
-    else
-        target = math.floor(value)
-    end
+    local is_float = tname:lower():find("single") ~= nil or tname:lower():find("float") ~= nil
+    local target = is_float and (value + 0.0) or math.floor(value)
 
+    local rec = {
+        field = name, type = tname, before = before, target = target,
+        size = safe(function() return f:get_size() end),
+        value_type = safe(function() return f:get_type():is_value_type() end),
+    }
+
+    -- 1. Object-level setter (RSZ aware; this is the one that works on
+    --    via.user_data in other mods on this install).
+    safe(function() obj:set_field(name, target) end)
+    local a1 = safe(function() return f:get_data(obj) end)
+    if a1 == target then
+        rec.strategy, rec.after = "set_field", a1
+        return rec
+    end
+    rec.after_set_field = a1
+
+    -- 2. Field descriptor setter.
     safe(function() f:set_data(obj, target) end)
-    local after = safe(function() return f:get_data(obj) end)
-    return target, before, after
+    local a2 = safe(function() return f:get_data(obj) end)
+    if a2 == target then
+        rec.strategy, rec.after = "set_data", a2
+        return rec
+    end
+    rec.after_set_data = a2
+
+    rec.strategy, rec.after = "failed", a2
+    return rec
+end
+
+-- The master otomo's character (path proven by the probe).
+local function master_character()
+    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
+    if not om then return nil end
+    local ctl = getter(om, "getMasterOtomoManagedControl")
+    if ctl == nil then return nil end
+    local info = field_value(ctl, "_OtomoManagedInfo")
+        or getter(ctl, "get_OtomoManagedInfo")
+    local char = info and field_value(info, "<Character>k__BackingField")
+    if char ~= nil then return char end
+    local hits = walk_find(ctl, "OtomoCharacter", 2, 120)
+    return hits[1] and hits[1].obj or nil
+end
+
+-- The runtime tool manager (mcOtomoToolManager). The probe could not reach it
+-- from the character's _Components (a COMPONENT_HOLDER), so try the mini
+-- component updater containers, which do expose their contents.
+local function find_tool_manager()
+    if state.tool_manager ~= nil then return state.tool_manager end
+    local char = master_character()
+    if char == nil then return nil end
+    local roots = {}
+    for _, fname in ipairs({
+        "_MiniCompUpdater_LateUpdate", "_MiniCompUpdater_AfterMotion",
+        "_MiniCompUpdater_AfterAction", "_MiniCompUpdater_LateUpdateEnd",
+        "_MiniCompUpdator_BeforeAction", "_Components",
+    }) do
+        local v = field_value(char, fname)
+        if v ~= nil then roots[#roots + 1] = { name = fname, obj = v } end
+    end
+    for _, r in ipairs(roots) do
+        local hits = walk_find(r.obj, "otomoToolManager", 3, 300)
+        for _, h in ipairs(hits) do
+            if h.type:find("mcOtomoToolManager") then
+                state.tool_manager = h.obj
+                state.tool_manager_path = r.name .. " -> " .. h.path
+                trace("tool manager found via " .. state.tool_manager_path)
+                return h.obj
+            end
+        end
+    end
+    return nil
+end
+
+-- 1-arg enum call on the live manager, arity-checked.
+local function call_enum_method(obj, methodName, value)
+    if obj == nil then return nil end
+    local td = safe(function() return obj:get_type_definition() end)
+    if not td then return nil end
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        local n = safe(function() return m:get_name() end)
+        local np = safe(function() return m:get_num_params() end)
+        if n == methodName and np == 1 then
+            return safe(function() return m:call(obj, value) end)
+        end
+    end
+    return nil
+end
+
+-- The runtime per-tool object that actually counts the cooldown.
+local function managed_tool_for(name)
+    if state.managed[name] ~= nil then return state.managed[name] end
+    local mgr = find_tool_manager()
+    if mgr == nil then return nil end
+    local value = nil
+    for _, t in ipairs(state.tool_values or {}) do
+        if t.name == name then value = t.value break end
+    end
+    if value == nil then return nil end
+    local obj = call_enum_method(mgr, "getOtomoToolManagedClass", value)
+    if obj ~= nil then state.managed[name] = obj end
+    return obj
+end
+
+-- Set the live cooldown on the runtime object (setCoolTime(1) -> Void).
+local function set_managed_cooltime(obj, seconds)
+    if obj == nil then return false end
+    local td = safe(function() return obj:get_type_definition() end)
+    if not td then return false end
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        if safe(function() return m:get_name() end) == "setCoolTime"
+            and safe(function() return m:get_num_params() end) == 1 then
+            local before = field_value(obj, "_CoolTime")
+            safe(function() return m:call(obj, seconds) end)
+            local after = field_value(obj, "_CoolTime")
+            return before, after
+        end
+    end
+    return false
 end
 
 local function params_object_for(name)
@@ -516,6 +714,35 @@ local function quest_flow()
         ending = mm and getter(mm, "get_IsQuestEndShowing") == true or false,
         loading = gf and getter(gf, "get_Loading") == true or false,
     }
+end
+
+-- One-shot diagnostic: what the field is, why the write failed, and whether the
+-- runtime tool manager is reachable at all. Written once per session.
+local function dump_diagnostic(toolName, paramObj, rec, managedBefore, managedAfter)
+    local diag = {
+        version = VERSION,
+        tool = toolName,
+        param_type = paramObj and safe(function()
+            return paramObj:get_type_definition():get_full_name()
+        end) or nil,
+        field = rec and rec.field,
+        field_type = rec and rec.type,
+        field_size = rec and rec.size,
+        value_type = rec and rec.value_type,
+        before = rec and rec.before,
+        target = rec and rec.target,
+        after_set_field = rec and rec.after_set_field,
+        after_set_data = rec and rec.after_set_data,
+        strategy = rec and rec.strategy,
+        managed_found = state.managed[toolName] ~= nil,
+        managed_before = managedBefore,
+        managed_after = managedAfter,
+        tool_manager_path = state.tool_manager_path,
+        param_fields = state.param_fields,
+        tool_param_fields = field_names(paramObj),
+    }
+    safe(function() json.dump_file("otomo_write_test.json", diag) end)
+    trace("diagnostic -> otomo_write_test.json")
 end
 
 local function apply_tuning()
@@ -546,9 +773,10 @@ local function apply_tuning()
         if type(cur) == "number" then
             if state.original_global == nil then state.original_global = cur end
             if cur ~= cfg.global_cooltime_sec then
-                local target, before, after = set_number(root, "_GlobalCoolTime", cfg.global_cooltime_sec)
-                trace(string.format("global cooltime %s -> %s (want %s)",
-                    tostring(before), tostring(after), tostring(target)))
+                local rec = write_number(root, "_GlobalCoolTime", cfg.global_cooltime_sec)
+                trace(string.format("global cooltime %s -> %s (%s)",
+                    tostring(rec and rec.before), tostring(rec and rec.after),
+                    tostring(rec and rec.strategy)))
             end
         end
     end
@@ -573,16 +801,38 @@ local function apply_tuning()
     for _, item in ipairs(plan_tuning(cfg, current)) do
         local obj = objects[item.name]
         if obj ~= nil then
-            local target, before, after = set_number(obj, "_CoolTime", item.target)
+            local rec = write_number(obj, "_CoolTime", item.target)
+            local strategy = rec and rec.strategy or "nil"
             -- keep the powered-up variant in step, otherwise the first
             -- level-up would restore the old number
             if field_value(obj, "_CoolTime_PowerUp") ~= nil then
-                set_number(obj, "_CoolTime_PowerUp", item.target)
+                write_number(obj, "_CoolTime_PowerUp", item.target)
             end
-            writes[#writes + 1] = string.format("%s %s->%s", item.name,
-                tostring(before), tostring(after))
-            trace(string.format("%s _CoolTime %s -> %s (want %s)", item.name,
-                tostring(before), tostring(after), tostring(target)))
+
+            if rec and rec.after == item.target then
+                writes[#writes + 1] = string.format("%s %s->%s", item.name,
+                    tostring(rec.before), tostring(rec.after))
+                trace(string.format("%s _CoolTime %s -> %s via %s", item.name,
+                    tostring(rec.before), tostring(rec.after), strategy))
+            else
+                -- The catalog copy refused the write. Try the runtime object
+                -- that actually counts the cooldown.
+                local managed = managed_tool_for(item.name)
+                local before, after = set_managed_cooltime(managed, item.target)
+                if before ~= nil and after ~= nil then
+                    writes[#writes + 1] = string.format("%s live %s->%s", item.name,
+                        tostring(before), tostring(after))
+                    trace(string.format("%s managed setCoolTime %s -> %s", item.name,
+                        tostring(before), tostring(after)))
+                else
+                    trace(string.format("%s _CoolTime refused (%s), no runtime object",
+                        item.name, strategy))
+                end
+                if not state.diag_done then
+                    state.diag_done = true
+                    dump_diagnostic(item.name, obj, rec, before, after)
+                end
+            end
         end
     end
     state.last_writes = table.concat(writes, ", ")
@@ -605,12 +855,12 @@ local function restore_originals()
     for name, obj in pairs(state.params) do
         local orig = state.original[name]
         if type(orig) == "number" then
-            set_number(obj, "_CoolTime", orig)
-            set_number(obj, "_CoolTime_PowerUp", orig)
+            write_number(obj, "_CoolTime", orig)
+            write_number(obj, "_CoolTime_PowerUp", orig)
         end
     end
     if type(state.original_global) == "number" then
-        set_number(state.param_root, "_GlobalCoolTime", state.original_global)
+        write_number(state.param_root, "_GlobalCoolTime", state.original_global)
     end
     state.params = {}
     trace("restored original cooltimes")
@@ -732,7 +982,7 @@ M._test._rt = {
     tick = tick,
     apply_tuning = apply_tuning,
     resolve_param_root = resolve_param_root,
-    set_number = set_number,
+    write_number = write_number,
     field_value = field_value,
     restore_originals = restore_originals,
     quest_flow = quest_flow,

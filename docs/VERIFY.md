@@ -24,9 +24,9 @@ questions; these are facts now, not assumptions:
 1. Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`.
 2. REFramework → Script → Reset scripts.
 3. Insert → Script Generated UI → **Otomo Tools**. The title must read
-   `v0.2.0`; if it does not, the file did not reach the game.
-4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.2.0 (…)`.
-5. `otomo_tools_trace.json` shows `loaded v0.2.0 … tools=14` and, once in the
+   `v0.2.1`; if it does not, the file did not reach the game.
+4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.2.1 (…)`.
+5. `otomo_tools_trace.json` shows `loaded v0.2.1 … tools=14` and, once in the
    hub or a quest, `param root resolved (N fields)`.
 
 ## 2. The write lands
@@ -34,8 +34,24 @@ questions; these are facts now, not assumptions:
 1. In the **hub**, open the panel. `tool params: resolved` must appear.
 2. `HORN_ATKUP tune now=600 want=90` before the first apply, then
    `now=90` after the next interval (~5 s).
-3. The trace gains `HORN_ATKUP _CoolTime 600 -> 90 (want 90)`.
+3. The trace gains `HORN_ATKUP _CoolTime 600 -> 90 via <strategy>`.
 4. **Restore original cooltimes** puts `now=600` back (and the trace says so).
+
+If the trace says `600 -> 600`, the write did not land. v0.2.1 tries
+`set_field`, then `set_data`, then the runtime object, and writes
+`reframework\data\otomo_write_test.json` with what happened:
+
+| Key | Meaning |
+|---|---|
+| `strategy` | `set_field`, `set_data`, `failed` |
+| `field_type` / `field_size` / `value_type` | the field's real shape |
+| `after_set_field`, `after_set_data` | the read-back after each attempt |
+| `managed_found` | was the runtime `cOtomoToolManagedBase` reachable |
+| `tool_manager_path` | how the manager was found, if it was |
+
+A `strategy: "failed"` with `managed_found: false` means the catalog is
+read-only on this build and the runtime path still has to be cracked — send that
+JSON back.
 
 If `now=` stays `nil`, the field mapping did not resolve — check that the panel
 lists `HORN_ATKUP` and that `param root resolved` appeared.
