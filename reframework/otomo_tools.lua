@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.3.0"
+local VERSION = "0.3.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -802,28 +802,60 @@ end
 -- the game; the only output is otomo_counter.json + a trace line per use.
 -- ---------------------------------------------------------------------------
 
-local counter = {
-    uses = 0, uptime = 0, observed = 0,
-    last_state = false, active_since = nil, last_now = nil, last_at = nil,
-    events = {}, ticks = 0,
-}
+-- Channels: one independent counter per (object, method) candidate. Which
+-- object actually carries the horn buff is not obvious from the class names
+-- (cOtomoConditionManager turned out to be the Palico's own status, not the
+-- buff it grants the hunter), so count them all and let the data decide.
+local channels = {}
+
+local function channel_count()
+    local n = 0
+    for _ in pairs(channels) do n = n + 1 end
+    return n
+end
+
+local function best_channel()
+    local best = nil
+    for _, ch in pairs(channels) do
+        if best == nil or (ch.c.uses or 0) > (best.c.uses or 0) then best = ch end
+    end
+    return best
+end
+
+local function reset_channels()
+    for _, ch in pairs(channels) do
+        ch.c = { uses = 0, uptime = 0, observed = 0, last_state = false, events = {} }
+    end
+end
 
 local function counter_snapshot()
-    local ct = state.params.HORN_ATKUP
-        and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
+    local list = {}
+    for _, ch in pairs(channels) do
+        list[#list + 1] = {
+            type = ch.type, method = ch.method, path = ch.path,
+            uses = ch.c.uses,
+            uptime_sec = ch.c.uptime,
+            observed_sec = ch.c.observed,
+            last_use = ch.c.last_at,
+            signal_kind = ch.kind,
+        }
+    end
+    table.sort(list, function(a, b) return (a.uses or 0) > (b.uses or 0) end)
+    local best = best_channel()
     return {
         version = VERSION,
-        uses = counter.uses,
-        uptime_sec = counter.uptime,
-        observed_sec = counter.observed,
-        uptime_pct = counter.observed > 0
-            and (math.floor(counter.uptime / counter.observed * 1000 + 0.5) / 10) or nil,
-        last_use = counter.last_at,
-        horn_cooltime = ct,
-        signal = state.buff_signal,
-        buff_type = state.buff_type,
-        buff_path = state.buff_path,
-        events = counter.events,
+        uses = best and best.c.uses or 0,
+        uptime_sec = best and best.c.uptime or 0,
+        observed_sec = best and best.c.observed or 0,
+        uptime_pct = (best and best.c.observed or 0) > 0
+            and (math.floor((best.c.uptime / best.c.observed) * 1000 + 0.5) / 10) or nil,
+        last_use = best and best.c.last_at or nil,
+        signal = best and (best.type .. ":" .. best.method) or nil,
+        channel_count = #list,
+        playing = state.last_playing,
+        horn_cooltime = state.params.HORN_ATKUP
+            and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil,
+        channels = list,
     }
 end
 
@@ -831,99 +863,125 @@ local function save_counter()
     safe(function() json.dump_file("otomo_counter.json", counter_snapshot()) end)
 end
 
-local function buff_active()
-    if state.buff == nil or state.buff_signal == nil then return nil end
-    local v = getter(state.buff, state.buff_signal)
+local CHANNEL_METHODS = {
+    { name = "isActiveAttackUp", kind = "bool" },
+    { name = "isEnableAttackUpIcon", kind = "bool" },
+    { name = "get_OtomoHorn_Attack", kind = "number" },
+}
+
+local function read_channel(ch)
+    local v = getter(ch.obj, ch.method)
     if v == nil then return nil end
+    if ch.kind == "number" then
+        if type(v) ~= "number" then return nil end
+        return v > 0
+    end
     return v == true
 end
 
--- Find the object that exposes isActiveAttackUp (fallback: the icon flag).
-local function resolve_buff_owner()
-    if state.buff ~= nil then return true end
-    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
-    if not om then return false end
-
-    local roots = {}
-    local ctl = getter(om, "getMasterOtomoManagedControl")
-    if ctl ~= nil then roots[#roots + 1] = { name = "control", obj = ctl } end
-    local char = master_character()
-    if char ~= nil then roots[#roots + 1] = { name = "character", obj = char } end
-    if #roots == 0 then return false end
-
-    local found = {}
-    for _, r in ipairs(roots) do
-        for _, mname in ipairs({ "isActiveAttackUp", "isEnableAttackUpIcon" }) do
-            for _, h in ipairs(walk_find_method(r.obj, mname, 5, 400)) do
-                found[#found + 1] = {
-                    root = r.name, path = h.path, type = h.type,
-                    method = mname, obj = h.obj,
-                }
+local function local_hunter()
+    local pm = safe(sdk.get_managed_singleton, "app.PlayerManager")
+    if not pm then return nil end
+    local list = field_value(pm, "_InstancedPlayerList")
+    if list ~= nil then
+        local n = list_length(list)
+        if n then
+            for i = 0, math.min(n - 1, 8) do
+                local p = safe(function() return list[i] end)
+                if p ~= nil then
+                    local user = getter(p, "get_IsUserControl")
+                    local npc = getter(p, "get_IsNpc")
+                    if user == true and npc ~= true then return p end
+                end
             end
         end
     end
+    return getter(pm, "getMasterPlayer")
+end
 
-    local chosen = nil
-    for _, f in ipairs(found) do
-        if f.method == "isActiveAttackUp" then chosen = f break end
-    end
-    if chosen == nil then chosen = found[1] end
-
-    if chosen ~= nil then
-        state.buff = chosen.obj
-        state.buff_signal = chosen.method
-        state.buff_type = chosen.type
-        state.buff_path = chosen.path
-        trace("counter signal: " .. tostring(chosen.type) .. ":" .. tostring(chosen.method))
-    end
-
-    safe(function()
-        local list = {}
-        for _, f in ipairs(found) do
-            list[#list + 1] = { root = f.root, type = f.type, method = f.method, path = f.path }
+local function add_channels(root, rootName, found)
+    for _, m in ipairs(CHANNEL_METHODS) do
+        for _, h in ipairs(walk_find_method(root, m.name, 4, 500)) do
+            local key = h.type .. "|" .. m.name .. "|" .. h.path
+            if not channels[key] then
+                channels[key] = {
+                    type = h.type, method = m.name, path = rootName .. ":" .. h.path,
+                    obj = h.obj, kind = m.kind,
+                    c = { uses = 0, uptime = 0, observed = 0, last_state = false, events = {} },
+                }
+                found[#found + 1] = { type = h.type, method = m.name, path = rootName .. ":" .. h.path }
+            end
         end
+    end
+end
+
+local function discover_channels()
+    local found = {}
+    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
+    if om then
+        local ctl = getter(om, "getMasterOtomoManagedControl")
+        if ctl ~= nil then add_channels(ctl, "otomo", found) end
+        local char = master_character()
+        if char ~= nil then add_channels(char, "otomo_char", found) end
+    end
+    local hunter = local_hunter()
+    if hunter ~= nil then add_channels(hunter, "hunter", found) end
+
+    if #found > 0 then
+        trace(string.format("counter channels: %d", channel_count()))
+    end
+    safe(function()
         json.dump_file("otomo_counter_diag.json", {
             version = VERSION,
-            chosen = chosen and {
-                type = chosen.type, method = chosen.method, path = chosen.path,
-            } or nil,
-            candidates = list,
+            channel_count = channel_count(),
+            added = found,
+            all = (function()
+                local out = {}
+                for _, ch in pairs(channels) do
+                    out[#out + 1] = { type = ch.type, method = ch.method, path = ch.path }
+                end
+                return out
+            end)(),
         })
     end)
-    return state.buff ~= nil
+    return channel_count() > 0
 end
+
+local counter_ticks = 0
 
 local function update_counter()
     if state.counter_off then return end
-    if state.buff == nil then
-        -- the walk is not free; retry every ~5 s, not every poll
+    if channel_count() == 0 then
         if state.frame < (state.buff_next or 0) then return end
         state.buff_next = state.frame + 300
-        if not resolve_buff_owner() then return end
+        if not discover_channels() then return end
     end
 
-    counter.ticks = counter.ticks + 1
-    local active = buff_active()
+    counter_ticks = counter_ticks + 1
     local now = safe(function() return os.time() end)
-    local ev = step_counter(counter, active, now, os.date("%H:%M:%S"))
+    local label = os.date("%H:%M:%S")
+    local flow = quest_flow()
+    state.last_playing = flow.playing
 
-    if ev ~= nil then
-        counter.events[#counter.events + 1] = {
-            kind = ev.kind, at = ev.at, uses = ev.uses,
-        }
-        while #counter.events > 100 do table.remove(counter.events, 1) end
-        if ev.kind == "start" then
-            local ct = state.params.HORN_ATKUP
-                and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
-            trace(string.format("horn use #%d (cooltime=%s)", ev.uses, tostring(ct)))
+    local wrote = false
+    for _, ch in pairs(channels) do
+        local active = read_channel(ch)
+        local ev = step_counter(ch.c, active, now, label)
+        if ev ~= nil then
+            ch.c.events[#ch.c.events + 1] = { kind = ev.kind, at = ev.at }
+            while #ch.c.events > 50 do table.remove(ch.c.events, 1) end
+            wrote = true
+            if ev.kind == "start" then
+                local ct = state.params.HORN_ATKUP
+                    and field_value(state.params.HORN_ATKUP, "_CoolTime") or nil
+                trace(string.format("%s:%s #%d (cooltime=%s)",
+                    ch.type, ch.method, ch.c.uses, tostring(ct)))
+            end
         end
-        save_counter()
-    elseif counter.ticks % 240 == 0 then
-        save_counter()      -- keep observed_sec fresh (about once a minute)
     end
+    if wrote or counter_ticks % 240 == 0 then save_counter() end
 end
 
--- ---------------------------------------------------------------------------
 -- One-shot diagnostic: what the field is, why the write failed, and whether the
 -- runtime tool manager is reachable at all. Written once per session.
 local function dump_diagnostic(toolName, paramObj, rec, managedBefore, managedAfter)
@@ -1169,19 +1227,22 @@ local function draw_body()
 
     imgui.separator()
     -- read-only counter
-    if state.buff == nil then
-        imgui.text("horn counter: buff signal not found yet")
+    if channel_count() == 0 then
+        imgui.text("horn counter: no signal found yet")
     else
-        local pct = counter.observed > 0
-            and (math.floor(counter.uptime / counter.observed * 1000 + 0.5) / 10) or 0
+        local best = best_channel()
+        local uses = best and best.c.uses or 0
+        local pct = 0
+        if best and best.c.observed > 0 then
+            pct = math.floor((best.c.uptime / best.c.observed) * 1000 + 0.5) / 10
+        end
         imgui.text(string.format("horn uses: %d   uptime: %s%%   last: %s",
-            counter.uses, tostring(pct), tostring(counter.last_at or "-")))
-        imgui.text("signal: " .. tostring(state.buff_type) .. ":" .. tostring(state.buff_signal))
+            uses, tostring(pct), tostring(best and best.c.last_at or "-")))
+        imgui.text("best signal: " .. tostring(best and (best.type .. ":" .. best.method) or "-")
+            .. "   (" .. channel_count() .. " channels)")
     end
     if imgui.button("Reset counter") then
-        counter.uses, counter.uptime, counter.observed = 0, 0, 0
-        counter.events, counter.last_at = {}, nil
-        counter.last_state, counter.active_since, counter.last_now = false, nil, nil
+        reset_channels()
         save_counter()
     end
 
@@ -1219,8 +1280,10 @@ M._test._rt = {
     field_value = field_value,
     restore_originals = restore_originals,
     quest_flow = quest_flow,
-    counter = counter,
+    channels = channels,
     update_counter = update_counter,
+    reset_channels = reset_channels,
+    discover_channels = discover_channels,
 }
 
 if _G.OTOMO_TOOLS_TEST then

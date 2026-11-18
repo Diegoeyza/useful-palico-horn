@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.1 — 2026-11-18
+
+The first counter resolved `app.cOtomoConditionManager:isActiveAttackUp` and read
+`0` for a whole hunt — because that object is the **Palico's own** condition
+state, not the buff the horn grants the hunter.
+
+- The counter now walks three roots (otomo control, otomo character, the local
+  hunter from `PlayerManager._InstancedPlayerList`) and counts **every** signal
+  it finds as an independent channel:
+  `isActiveAttackUp`, `isEnableAttackUpIcon`, `get_OtomoHorn_Attack` (`> 0`).
+- `otomo_counter.json` lists all channels sorted by uses, so one hunt tells us
+  which object actually tracks the buff instead of guessing twice.
+- The panel shows the leading channel and how many are being watched.
+- Also records `playing` with each snapshot, so a hub-only run is obvious.
+- Tests unchanged (86 + 23 = 109).
+
 ## 0.3.0 — 2026-11-18
 
 - **Read-only horn counter.** Watches the Attack-Up buff go off → on and reports
