@@ -1,0 +1,27 @@
+Otomo Tools — install
+=====================
+
+Requires REFramework (dinput8.dll) for Monster Hunter Wilds.
+
+1. Copy otomo_tools.lua into:
+       <game>\reframework\autorun\otomo_tools.lua
+
+2. In game, press Insert (REFramework menu) -> Script -> Reset scripts.
+   A Lua error in re2_framework_log.txt means the file did not load; check
+   that the file is byte-identical to the repo copy.
+
+3. Insert -> Script Generated UI -> "Otomo Tools v0.1.0".
+
+Settings are saved to <game>\reframework\data\otomo_tools.json the first time
+you change something in the panel.
+
+What it does
+------------
+Keeps the chosen Palico "Otomo Tool" off cooldown so the game's own AI can use
+it as often as it wants to. The default preset is the Attack-Up horn (the
+trumpet). Nothing is triggered or animated by the mod: it only clears cooldowns.
+
+Uninstall
+---------
+Delete otomo_tools.lua from reframework\autorun\. Optionally delete
+reframework\data\otomo_tools.json.
