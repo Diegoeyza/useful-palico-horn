@@ -23,7 +23,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.1.2"
+local VERSION = "0.1.3"
 local TAG = "[OtomoRuntimeProbe]"
 local OUT = "otomo_runtime_probe.json"
 local OUT_TYPES = "otomo_runtime_probe_types.json"
@@ -444,6 +444,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local captured = nil
+local captured_alt = nil
 local hook_state = "not installed"
 
 local function install_hook()
@@ -455,8 +456,13 @@ local function install_hook()
     if not m then hook_state = "method not found" return false end
     local ok = safe(function()
         sdk.hook(m, function(args)
-            -- store only; do not touch the object here
-            if captured == nil and args ~= nil then captured = args[1] end
+            -- store only; do not touch the objects here.
+            -- On this build args[2] is `this` and args[3..] are the parameters
+            -- (same convention as artian_editor / kill_counter / highlights).
+            if captured == nil and args ~= nil then
+                captured = args[2]
+                captured_alt = args[1]
+            end
         end, function() end)
         return true
     end)
@@ -489,22 +495,30 @@ local TOOLS = {
 -- Hook args arrive as raw pointers on this build, so convert explicitly.
 -- to_managed_object is only called on a non-nil value that the hook itself
 -- produced, and the result is validated before anything calls a method on it.
-local function resolve_captured()
-    if captured == nil then return nil, "nil" end
-    if is_obj(captured) then return captured, "direct" end
-    if type(captured) == "number" and type(sdk.to_ptr) == "function" then
-        local p = safe(sdk.to_ptr, captured)
+local function try_convert(v, label)
+    if v == nil then return nil end
+    if is_obj(v) then return v, label .. ":direct" end
+    if type(v) == "number" and type(sdk.to_ptr) == "function" then
+        local p = safe(sdk.to_ptr, v)
         if p ~= nil and type(sdk.to_managed_object) == "function" then
             local obj = safe(sdk.to_managed_object, p)
-            if obj ~= nil and is_obj(obj) then return obj, "to_ptr+to_managed_object" end
+            if obj ~= nil and is_obj(obj) then return obj, label .. ":to_ptr" end
         end
     end
     if type(sdk.to_managed_object) == "function" then
-        local obj = safe(sdk.to_managed_object, captured)
-        if obj ~= nil and is_obj(obj) then return obj, "to_managed_object" end
+        local obj = safe(sdk.to_managed_object, v)
+        if obj ~= nil and is_obj(obj) then return obj, label .. ":to_managed_object" end
     end
-    return nil, "not convertible"
+    return nil
 end
+
+local function resolve_captured()
+    local obj, how = try_convert(captured, "args[2]")
+    if obj ~= nil then return obj, how end
+    return try_convert(captured_alt, "args[1]")
+end
+
+
 
 local function report_live()
     local out = { probe_version = VERSION, hook = hook_state }
