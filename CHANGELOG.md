@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0 — 2026-11-18
+
+**The probe settled both questions.**
+
+1. The data lever **works**: the live `app.cOtomoToolManagedBase._CoolTime` for
+   `HORN_ATKUP` read **90.0** while the untouched `HORN_DEFUP` read 10.0. So the
+   writes do reach the runtime — the 502 s gap between uses was the AI choosing
+   not to play it, not a stale cooldown.
+2. The manager (`app.mcOtomoToolManager`) is an `ace` mini-component with no
+   reachable owner, but a pre-hook on `updateMain` hands us `this` in `args[2]`.
+   That argument is a **raw pointer**: `is_managed_object()` says true while
+   `get_type_definition()` returns nothing, so it must be unwrapped with
+   `sdk.to_managed_object` first.
+
+- Adds **Force use when ready** (experimental, **off by default**): once the
+  captured manager says `canUseOtomoTool(tool)` and the buff is not up, calls
+  the game's own `requestForceUseOtomoTool(tool)` at most once per interval
+  (default 20 s), then `resetForceUseOtomoTool` ~5 s later.
+- The hook is installed **lazily**, only while the toggle is on — the default
+  path stays hook-free.
+- Tests: 101 logic + 28 pipeline = 129.
+
 ## 0.4.1 — 2026-11-18
 
 The counter was reading the wrong object again, for a new reason: discovery ran

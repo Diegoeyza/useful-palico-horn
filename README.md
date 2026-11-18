@@ -6,7 +6,7 @@ every Palico tool is configurable.
 
 ## Status
 
-**v0.3.0 — data tuning + a read-only horn counter.** The Palico's tool cooldowns
+**v0.5.0 — data tuning, a horn counter, and an opt-in force-use.** The Palico's tool cooldowns
 are plain data, and the Attack-Up horn ships with a **600 s** cooldown. This mod
 writes that number down to whatever you pick (default 90 s), per tool, and
 counts how often the buff actually goes up so the result can be measured.

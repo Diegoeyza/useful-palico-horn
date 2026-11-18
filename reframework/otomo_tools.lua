@@ -1173,6 +1173,8 @@ local function force_use_tick()
     local flow = quest_flow()
     if not flow.playing then return end
 
+    if not install_manager_hook() then return end
+
     local mgr = manager()
     if mgr == nil then return end
 
@@ -1603,7 +1605,6 @@ end
 if not ALREADY_LOADED then
     load_tool_enum()
     load_config()
-    install_manager_hook()
 
     re.on_draw_ui(function()
         local ok, err = pcall(draw_ui)
