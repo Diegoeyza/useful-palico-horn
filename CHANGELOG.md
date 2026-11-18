@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1 — 2026-11-18
+
+- Fix: `imgui.text_wrapped` does not exist on this REFramework build
+  (`dinput8.dll` registers `text` and `text_colored` only). Calling it threw
+  inside the tree node, which is what produced ImGui's **"Missing TreePop()"**.
+  Replaced with a local word-wrap + `imgui.text`, and the UI is now told to use
+  `text_wrapped` only if the binding exists.
+- Fix: `imgui.tree_pop()` now runs outside the body's `pcall`, so a future
+  exception can never leave a tree node open again.
+- Tests: 59 logic + 18 pipeline (77 total), including the wrap behaviour.
+
 ## 0.1.0 — 2026-11-18
 
 - First build. Tier A only: clears the per-tool cooldown (and optionally the

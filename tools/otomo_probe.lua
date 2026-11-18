@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.1.0"
+local VERSION = "0.1.1"
 local TAG = "[OtomoProbe]"
 
 -- Re-running the script must not register a second set of callbacks.
@@ -80,6 +80,41 @@ local function type_name(obj)
     if obj == nil then return nil end
     local td = safe(function() return obj:get_type_definition() end)
     return td and safe(function() return td:get_full_name() end) or nil
+end
+
+-- Word wrap without imgui.text_wrapped: that binding does not exist on this
+-- REFramework build (dinput8.dll registers `text` and `text_colored` only).
+local function wrap_text(text, width)
+    local out = {}
+    text = tostring(text or "")
+    width = math.max(1, tonumber(width) or 76)
+    local line = ""
+    for word in text:gmatch("%S+") do
+        if #line == 0 then
+            line = word
+        elseif #line + 1 + #word <= width then
+            line = line .. " " .. word
+        else
+            out[#out + 1] = line
+            line = word
+        end
+        while #line > width do
+            out[#out + 1] = line:sub(1, width)
+            line = line:sub(width + 1)
+        end
+    end
+    if #line > 0 then out[#out + 1] = line end
+    if #out == 0 then out[1] = "" end
+    return out
+end
+
+local function text_wrapped(text, width)
+    if type(imgui.text_wrapped) == "function" then
+        return safe(function() imgui.text_wrapped(text) end)
+    end
+    for _, line in ipairs(wrap_text(text, width)) do
+        imgui.text(line)
+    end
 end
 
 local function is_obj(v)
@@ -753,9 +788,7 @@ end
 -- UI
 -- ---------------------------------------------------------------------------
 
-local function draw_ui()
-    if not imgui.tree_node("Otomo Probe v" .. VERSION) then return end
-
+local function draw_body()
     imgui.text("1. Dump types (safe anywhere, calls nothing)")
     if imgui.button("Dump types") then
         local ok, err = pcall(dump_types)
@@ -797,9 +830,20 @@ local function draw_ui()
     end
 
     imgui.separator()
-    imgui.text_wrapped("Last: " .. lastStatus)
+    text_wrapped("Last: " .. lastStatus)
     imgui.text("Outputs: " .. OUT_TYPES .. ", " .. OUT_INSTANCE .. ", " .. OUT_WATCH)
-    imgui.tree_pop()
+end
+
+-- ImGui requires TreePop for every TreePush; an exception in the body is how
+-- you get the "Missing TreePop()" error. The pop lives outside the pcall.
+local function draw_ui()
+    if not imgui.tree_node("Otomo Probe v" .. VERSION) then return end
+    local ok, err = pcall(draw_body)
+    safe(function() imgui.tree_pop() end)
+    if not ok then
+        lastStatus = "draw error: " .. tostring(err)
+        log.info(TAG .. " " .. lastStatus)
+    end
 end
 
 -- ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ fastest. Run it after a game patch and before every release.
 
 ## 0. Probe first (once per patch)
 
-The probe answers the questions the mod is built on. Without it, v0.1.0 is an
+The probe answers the questions the mod is built on. Without it, v0.1.1 is an
 educated guess.
 
 1. Copy `tools/otomo_probe.lua` to `<game>\reframework\autorun\`.
@@ -36,8 +36,8 @@ educated guess.
 1. Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`.
 2. REFramework → Script → Reset scripts.
 3. Insert → Script Generated UI → **Otomo Tools**. The title must read
-   `v0.1.0`; if it does not, the file did not reach the game.
-4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.1.0 (…)`.
+   `v0.1.1`; if it does not, the file did not reach the game.
+4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.1.1 (…)`.
 
 ## 2. Baseline vs mod (the actual claim)
 

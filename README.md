@@ -6,7 +6,7 @@ every Palico tool is configurable.
 
 ## Status
 
-**v0.1.0 — Tier A only (state-level cooldown control).** Built, offline-tested,
+**v0.1.1 — Tier A only (state-level cooldown control).** Built, offline-tested,
 not yet verified against a live build. See `docs/VERIFY.md`.
 
 ## What it does / does not do

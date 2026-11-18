@@ -204,6 +204,28 @@ check(not an.Horn_DefUp, "off tools are never active")
 eq(next(T.active_names(nil)), nil, "nil config has no active tools")
 
 -- ---------------------------------------------------------------------------
+group("word wrap (the text_wrapped binding is missing on this build)")
+-- ---------------------------------------------------------------------------
+
+local lines = T.wrap_text("a b c d e f", 5)
+eq(#lines, 2, "two wrapped lines")
+eq(lines[1], "a b c", "first line")
+eq(lines[2], "d e f", "second line")
+
+lines = T.wrap_text("abcdefghij", 4)
+eq(#lines, 3, "an overlong token is split")
+eq(lines[1], "abcd", "split 1")
+eq(lines[3], "ij", "split remainder")
+
+lines = T.wrap_text("", 10)
+eq(#lines, 1, "empty text still yields one line")
+eq(lines[1], "", "empty line")
+
+lines = T.wrap_text("short", 80)
+eq(#lines, 1, "short text stays on one line")
+eq(lines[1], "short", "content preserved")
+
+-- ---------------------------------------------------------------------------
 group("config round trip")
 -- ---------------------------------------------------------------------------
 

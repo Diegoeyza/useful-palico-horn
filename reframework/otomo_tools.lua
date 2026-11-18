@@ -30,7 +30,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.1.0"
+local VERSION = "0.1.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -63,6 +63,41 @@ local function safe_str(v)
     end
     if t == "number" or t == "boolean" then return v end
     return tostring(v)
+end
+
+-- Word wrap without imgui.text_wrapped: that binding does not exist on this
+-- REFramework build (dinput8.dll registers `text` and `text_colored` only).
+local function wrap_text(text, width)
+    local out = {}
+    text = tostring(text or "")
+    width = math.max(1, tonumber(width) or 76)
+    local line = ""
+    for word in text:gmatch("%S+") do
+        if #line == 0 then
+            line = word
+        elseif #line + 1 + #word <= width then
+            line = line .. " " .. word
+        else
+            out[#out + 1] = line
+            line = word
+        end
+        while #line > width do
+            out[#out + 1] = line:sub(1, width)
+            line = line:sub(width + 1)
+        end
+    end
+    if #line > 0 then out[#out + 1] = line end
+    if #out == 0 then out[1] = "" end
+    return out
+end
+
+local function text_wrapped(text, width)
+    if type(imgui.text_wrapped) == "function" then
+        return safe(function() imgui.text_wrapped(text) end)
+    end
+    for _, line in ipairs(wrap_text(text, width)) do
+        imgui.text(line)
+    end
 end
 
 local function type_name(obj)
@@ -435,6 +470,7 @@ M._test = {
     quest_gate_ok = quest_gate_ok,
     plan_resets = plan_resets,
     active_names = active_names,
+    wrap_text = wrap_text,
     presets = PRESETS,
     modes = MODES,
     _rt = nil,   -- filled in below, once the runtime exists
@@ -662,12 +698,9 @@ local function ui_reads()
     return ui
 end
 
-local function draw_ui()
-    if not imgui.tree_node("Otomo Tools v" .. VERSION) then return end
-
+local function draw_body()
     if not state.cfg then
         imgui.text("config not loaded")
-        imgui.tree_pop()
         return
     end
 
@@ -679,7 +712,8 @@ local function draw_ui()
         imgui.checkbox("Read live state for every tool", state.cfg.verify_all_tools)
     if changed then save_config() end
 
-    imgui.text("Preset: " .. tostring(state.cfg.preset))    for _, pname in ipairs({ "horn_attack", "horn_both", "healing" }) do
+    imgui.text("Preset: " .. tostring(state.cfg.preset))
+    for _, pname in ipairs({ "horn_attack", "horn_both", "healing" }) do
         if imgui.button(pname) then
             state.cfg.preset = pname
             for _, n in ipairs(state.live_names) do
@@ -721,9 +755,21 @@ local function draw_ui()
 
     imgui.separator()
     imgui.text("last reset: " .. (state.last_plan ~= "" and state.last_plan or "(none)"))
-    imgui.text_wrapped("status: " .. state.last_status)
+    text_wrapped("status: " .. state.last_status)
     imgui.text("config: " .. CONFIG_FILE .. "   trace: " .. TRACE_FILE)
-    imgui.tree_pop()
+end
+
+-- ImGui requires TreePop for every TreePush. An exception inside the body is
+-- exactly how you get the "Missing TreePop()" error the user sees, so the pop
+-- happens outside the pcall.
+local function draw_ui()
+    if not imgui.tree_node("Otomo Tools v" .. VERSION) then return end
+    local ok, err = pcall(draw_body)
+    safe(function() imgui.tree_pop() end)
+    if not ok then
+        state.last_status = "draw error: " .. tostring(err)
+        log.info(TAG .. " " .. state.last_status)
+    end
 end
 
 -- ---------------------------------------------------------------------------
