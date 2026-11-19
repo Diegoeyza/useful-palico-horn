@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.13.0"
+local VERSION = "0.14.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -669,6 +669,24 @@ local function dump_obj(label, obj)
     return rec
 end
 
+-- Enum member name -> value, for the AI/condition state enums.
+local function enum_members(typeName)
+    local td = safe(sdk.find_type_definition, typeName)
+    if td == nil then return nil end
+    local out = {}
+    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+        if safe(function() return f:is_static() end) then
+            local n = safe(function() return f:get_name() end)
+            local v = safe(function() return f:get_data(nil) end)
+            if n ~= nil and type(v) == "number" then
+                out[#out + 1] = { name = n, value = v }
+            end
+        end
+    end
+    table.sort(out, function(a, b) return a.value < b.value end)
+    return out
+end
+
 -- Read-only: records the real type, method and field names so the status-flag
 -- candidates can be corrected from data instead of guessed.
 local function dump_monster()
@@ -700,6 +718,52 @@ local function dump_monster()
         end
         out.chara_children = kids
     end
+
+    -- condition objects: their own type and members tell us if they carry an
+    -- "active" flag we can read
+    local conditions = nil
+    for _, m in ipairs(state.boss_modules or {}) do
+        if m[1] == "conditions" then conditions = m[2] end
+    end
+    if conditions ~= nil then
+        out.condition_objects = {}
+        for _, name in ipairs({ "Capture", "FieldPitfall", "Flash", "Blast",
+                                "Tired", "Koyasi", "SandDig" }) do
+            local rec = dump_obj("condition:" .. name, access(conditions, name))
+            if rec ~= nil then out.condition_objects[#out.condition_objects + 1] = rec end
+        end
+    end
+
+    -- the AI state/interrupt enums are the likely home of paralysis and stun
+    out.enums = {}
+    for _, tn in ipairs({
+        "app.EnemyDef.AI_STATE_ID",
+        "app.EnemyDef.AI_INTERRUPT_ID",
+        "app.EnemyDef.CONDITION",
+        "app.EnemyDef.EXTRA_STATE",
+        "app.CharacterDef.STAND_STATE",
+    }) do
+        local members = enum_members(tn)
+        if members ~= nil then
+            out.enums[#out.enums + 1] = { type = tn, members = members }
+        end
+    end
+
+    -- live values at dump time
+    local ai = nil
+    for _, m in ipairs(state.boss_modules or {}) do
+        if m[1] == "aistate" then ai = m[2] end
+    end
+    out.current = {
+        extra_state = state.boss_em and tostring(access(state.boss_em, "ExtraState")) or nil,
+        stand_state = state.boss_em and tostring(access(state.boss_em, "StandState")) or nil,
+        down_direction = state.boss_em and tostring(access(state.boss_em, "DownDirection")) or nil,
+        ai_state = ai and tostring(access(ai, "CurrentAIStateID")) or nil,
+        ai_interrupt = ai and tostring(access(ai, "CurrentAIInterruptID")) or nil,
+        is_capture = ai and tostring(access(ai, "IsCapture")) or nil,
+        is_flash = ai and tostring(access(ai, "IsFlash")) or nil,
+        is_damage = ai and tostring(access(ai, "IsDamage")) or nil,
+    }
 
     pcall(json.dump_file, "monster_flags.json", out)
     trace("monster dump written")

@@ -1,5 +1,23 @@
 # Changelog
 
+## Otomo Horn 0.14.0 — 2026-11-18
+
+From the module dump: `cEmModuleConditions` names Angry, Blast, Block, Capture,
+FieldPitfall, Flash, Koyasi, SandDig, SmokeBall, Stamina, Tired - **no paralysis
+or stun**. Those are therefore modelled as AI states/interrupts, so the dump now
+also records:
+
+- enum members for `EnemyDef.AI_STATE_ID`, `AI_INTERRUPT_ID`, `CONDITION`,
+  `EXTRA_STATE`, `CharacterDef.STAND_STATE`
+- the type/methods/fields of the individual condition objects (Capture,
+  FieldPitfall, Flash, Blast, Tired, Koyasi, SandDig)
+- live values: `ExtraState`, `StandState`, `DownDirection`,
+  `CurrentAIStateID`, `CurrentAIInterruptID`, `IsCapture`, `IsFlash`
+
+A dump taken during a paralysis/trap is the missing sample: the baseline state
+is already captured, so the delta names the flag.
+
+
 ## Otomo Horn 0.13.0 — 2026-11-18
 
 Structural dump from a hunt showed where the monster state actually lives:
