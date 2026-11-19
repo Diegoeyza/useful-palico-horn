@@ -20,13 +20,30 @@ Use
 ---
 1. Enter a quest and let the Palico act once (a few seconds is enough).
 2. Press F6 to fire the horn, or use the "Fire horn now" button in the
-   REFramework script list (Otomo Horn v0.1.0).
+   REFramework script list (Otomo Horn v0.2.0).
 3. The horn plays and the Attack-Up buff applies, even if the Palico's own
    cooldown would not have allowed it.
 
-The hotkey is stored in reframework/data/otomo_horn.json:
+Automation
+----------
+* **Fire when the buff is down** - fires automatically as soon as the
+  Attack-Up buff expires, keeping it up permanently.
+* **Global cooldown (s)** - minimum time between automatic fires, default
+  **480 s (8 minutes)**. Manual fires are never blocked by it.
+* A global cooldown of 0 still enforces a 10 s anti-spam gap.
 
-    { "enabled": true, "hotkey": "F6", "min_interval_sec": 0.5 }
+The panel shows the live buff state (UP / down / unknown) and a countdown to the
+next automatic fire.
+
+Settings live in reframework/data/otomo_horn.json:
+
+    {
+      "enabled": true,
+      "hotkey": "F6",
+      "min_interval_sec": 0.5,
+      "auto_when_down": false,
+      "global_cooldown_sec": 480
+    }
 
 Notes
 -----

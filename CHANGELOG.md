@@ -1,5 +1,21 @@
 # Changelog
 
+## Otomo Horn 0.2.0 — 2026-11-18
+
+- **Fire when the buff is down**: automatic re-fire as soon as the Attack-Up
+  buff expires. The buff state is read from the Palico's condition manager
+  (`isActiveAttackUp`), the same object the Otomo Tools counter uses.
+- **Global cooldown** (default 480 s / 8 min) gating automatic fires, with a
+  countdown in the panel. Manual fires are not gated by it; a 10 s anti-spam
+  gap applies even at 0.
+- Live `buff: UP / down / unknown` in the panel.
+- Hotkey resolution now tries the enum name, the `ImGuiKey_` prefix and a raw
+  number, and dumps the build's `imgui.ImGuiKey` names to
+  `otomo_horn_trace.json` on load so a non-firing hotkey can be diagnosed
+  instead of guessed at.
+- Hotkey is also polled in `on_frame` in case the draw callback is not running.
+
+
 ## Sibling mod: Otomo Horn 0.1.0 — 2026-11-18
 
 New file, `reframework/otomo_horn.lua`, packaged separately
