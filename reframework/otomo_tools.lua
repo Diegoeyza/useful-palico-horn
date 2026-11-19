@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.5.0"
+local VERSION = "0.5.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -1159,6 +1159,16 @@ local function call_int(obj, methodName, value)
     return nil, false
 end
 
+-- Is the tool off cooldown and usable, ignoring the AI's desire?
+local function readiness(mgr, value)
+    local v = call_int(mgr, "canUseOtomoTool_IgnoreDesire", value)
+    if v ~= nil then return v == true, "ignore_desire" end
+    v = call_int(mgr, "canUseOtomoTool_IgnoreGlobalCoolTimeAndDesire", value)
+    if v ~= nil then return v == true, "ignore_gcd_desire" end
+    v = call_int(mgr, "canUseOtomoTool", value)
+    return v == true, "canUse"
+end
+
 local function tool_value(name)
     for _, t in ipairs(state.tool_values or {}) do
         if t.name == name then return t.value end
@@ -1181,22 +1191,32 @@ local function force_use_tick()
     local value = tool_value(cfg.force_tool)
     if value == nil then return end
 
-    -- clear a previous request first
-    if state.force_clear_at ~= nil and state.frame >= state.force_clear_at then
-        call_int(mgr, "resetForceUseOtomoTool", value)
-        state.force_clear_at = nil
-    end
-
-    local can = call_int(mgr, "canUseOtomoTool", value)
-    if not force_due(cfg, state.frame, state.last_force, can == true, state.buff_now) then
+    -- A pending request: keep it alive until the AI actually acts on it.
+    if state.force_clear_at ~= nil then
+        if state.frame >= state.force_clear_at then
+            call_int(mgr, "resetForceUseOtomoTool", value)
+            state.force_clear_at = nil
+            state.last_force = state.frame
+            trace("force use released (no use within the window)")
+            return
+        end
+        call_int(mgr, "requestForceUseOtomoTool", value)
         return
     end
 
-    state.last_force = state.frame
+    -- Readiness must IGNORE desire: canUseOtomoTool() includes the AI's own
+    -- willingness, which is exactly the gate we are trying to bypass. Using it
+    -- meant we only ever asked when the Palico already wanted to play.
+    local ready, how = readiness(mgr, value)
+    if not force_due(cfg, state.frame, state.last_force, ready, state.buff_now) then
+        return
+    end
+
+    state.force_clear_at = state.frame + 600      -- hold the request ~10 s
     local _, ok = call_int(mgr, "requestForceUseOtomoTool", value)
-    state.force_clear_at = state.frame + 300      -- release after ~5 s
     trace("force use " .. tostring(cfg.force_tool)
-        .. " (" .. tostring(value) .. ") called=" .. tostring(ok))
+        .. " (" .. tostring(value) .. ") ready-by=" .. tostring(how)
+        .. " called=" .. tostring(ok))
 end
 
 -- One-shot diagnostic: what the field is, why the write failed, and whether the

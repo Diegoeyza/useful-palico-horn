@@ -24,9 +24,9 @@ questions; these are facts now, not assumptions:
 1. Copy `reframework/otomo_tools.lua` to `<game>\reframework\autorun\`.
 2. REFramework → Script → Reset scripts.
 3. Insert → Script Generated UI → **Otomo Tools**. The title must read
-   `v0.5.0`; if it does not, the file did not reach the game.
-4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.5.0 (…)`.
-5. `otomo_tools_trace.json` shows `loaded v0.5.0 … tools=14` and, once in the
+   `v0.5.1`; if it does not, the file did not reach the game.
+4. `re2_framework_log.txt` must contain `[OtomoTools] loaded v0.5.1 (…)`.
+5. `otomo_tools_trace.json` shows `loaded v0.5.1 … tools=14` and, once in the
    hub or a quest, `param root resolved (N fields)`.
 
 ## 2. The write lands
