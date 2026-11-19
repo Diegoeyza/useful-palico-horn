@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.9.0"
+local VERSION = "0.10.1"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -84,6 +84,7 @@ local state = {
     binding = false,
     key_list = nil,
     scan = nil,             -- { i = next value, max = limit }
+    logkeys = nil,          -- diagnostic: just record what is down/pressed
     bind_block_until = nil,
 
     trace = {},
@@ -552,7 +553,6 @@ re.on_frame(function()
             if state.monster_state == false then
                 state.first_hit_done = false     -- full hp again: new hunt/monster
             elseif state.monster_state == true and state.first_hit_done == false then
-                state.first_hit_done = true
                 state.pending_fire = "first hit"
                 state.pending_kind = "event"
             end
@@ -574,7 +574,11 @@ re.on_frame(function()
             state.pending_fire = nil
             state.pending_kind = nil
             trace("request: " .. tostring(reason))
-            fire(reason)
+            -- only latch the first-hit trigger once a fire actually happened,
+            -- otherwise "wait for the Palico to act once" consumes it forever
+            if fire(reason) and reason == "first hit" then
+                state.first_hit_done = true
+            end
         end
 
         if state.frames % 300 == 0 then
@@ -623,6 +627,11 @@ local function draw_body()
             if imgui.button("Find my key (press it after clicking)") then
                 state.scan = { started = state.frames or 0 }
                 trace("scan started")
+            end
+            imgui.same_line()
+            if imgui.button("Log keys (hold a key 2 s)") then
+                state.logkeys = { started = state.frames or 0 }
+                trace("logkeys started")
             end
         else
             if imgui.button("Bind hotkey") then
@@ -687,6 +696,32 @@ end
 -- is not a key at all). A press must also be stable for two frames.
 local SCAN_MIN = 512          -- below this are mouse buttons and legacy keys
 local SCAN_MAX = 600
+
+-- Diagnostic: record every value that reports down or pressed, without binding.
+-- This tells us where this build's key values actually are.
+local function try_logkeys()
+    if state.logkeys == nil then return end
+    if (state.frames or 0) - state.logkeys.started > 900 then
+        state.logkeys = nil
+        trace("logkeys finished")
+        return
+    end
+    if (state.frames or 0) % 30 ~= 0 then return end
+
+    local downs, presses = {}, {}
+    for v = 0, 700 do
+        local ok1, d = pcall(imgui.is_key_down, v)
+        if ok1 and d == true then downs[#downs + 1] = v end
+        if imgui.is_key_pressed ~= nil then
+            local ok2, pr = pcall(imgui.is_key_pressed, v)
+            if ok2 and pr == true then presses[#presses + 1] = v end
+        end
+    end
+    if #downs > 0 or #presses > 0 then
+        trace("logkeys down=[" .. table.concat(downs, ",") .. "] pressed=["
+            .. table.concat(presses, ",") .. "]")
+    end
+end
 
 local function try_scan()
     if state.scan == nil then return false end
@@ -760,6 +795,7 @@ local function try_bind()
 end
 
 re.on_draw_ui(function()
+    try_logkeys()
     local consumed = try_scan() or try_bind()
     local okk, pressed_now = false, false
     if not consumed then
