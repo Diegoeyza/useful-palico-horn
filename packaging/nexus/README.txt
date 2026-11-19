@@ -23,7 +23,10 @@ Usage
    reframework\autorun\ and reset scripts.
 2. Open Insert -> Script Generated UI -> Otomo Tools.
 3. Pick a preset (Horn Attack Up by default) or toggle individual tools.
-4. The panel shows each tool's live state so you can see the mod working.
+4. Optional: lower the global cooldown (90 s by default) so the other tools
+   come off cooldown sooner. The horns ignore it - they use their own cooldown.
+5. The panel shows the live buff state (buff now: UP / down) and a horn use
+   counter, so you can see it working.
 
 Notes
 -----

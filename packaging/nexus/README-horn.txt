@@ -1,74 +1,64 @@
 Useful Palico Horn
 ==================
 
-Fires the Palico's Attack-Up horn on command, for timing it to a paralysis, a
-trap or a down instead of leaving it to the AI.
+Fires the Palico's Attack-Up horn on command, so the buff lands when you want
+it: on the first hit, at quest start, on a trap, a stun or a paralysis, or the
+moment the buff runs out.
 
 Requirements
 ------------
-REFramework (with Lua support). Nothing else.
+- REFramework (with Lua support).
+- Nothing else. Works alongside Otomo Tools; the two are independent.
 
 Install
 -------
-Install with **Fluffy Manager** or Vortex, or extract the archive straight into
-your game folder (the archive root contains `reframework\autorun\`, so it
-lands correctly):
+Install with Fluffy Manager or Vortex, or extract the archive straight into your
+game folder (the archive root contains reframework\autorun\, so it lands
+correctly):
 
     MonsterHunterWilds\reframework\autorun\useful_palico_horn.lua
-
-Works alongside Otomo Tools; they are independent.
 
 Use
 ---
 1. Enter a quest and let the Palico act once (a few seconds is enough).
-2. Press **.** (period) to fire the horn, or use the "Fire horn now" button in the
-   REFramework script list (Useful Palico Horn v1.1.0).
-3. The horn plays and the Attack-Up buff applies, even if the Palico's own
-   cooldown would not have allowed it.
+2. Press . (period), or use the "Fire horn now" button in
+   Insert -> Script Generated UI -> Useful Palico Horn.
 
-Automation
-----------
-* **Fire when the buff is down** - fires automatically as soon as the
-  Attack-Up buff expires, keeping it up permanently.
-* **Fire on the first hit to the monster** - fires once as soon as the target
-  monster first takes damage.
-* **Fire when the monster is trapped / stunned / paralyzed** - reads the
-  monster's condition ids (`PARALYSE=5`, `STUN=15`, `FIELD_PITFALL=31`,
-  `TRAP_*=39..43`) and fires once per event. The live state is shown as `flags: trap=.. stun=.. para=..`; if a
-  flag reads `?` the accessor is not found and *Dump monster structure* records
-  what the game actually exposes. Read from `app.EnemyManager` health data; the
-  panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
-  the fight.
-* **Use the base game cooldown** - checked, the horn's real 8 minute (480 s)
-  cooldown gates the hotkey, the button, the buff-down keep-alive and the
-  trap/stun/paralysis triggers. Unchecked, a box appears for any value you like.
-  **First hit and quest start are never gated** - they are one-shot events, so
-  spending the cooldown on them would defeat the purpose. Manual fires and the first-hit trigger are not blocked
-  by it; a 10 s anti-spam gap always applies.
+Cooldown
+--------
+The horn's own cooldown is 8 minutes. "Use the base game cooldown" (on by
+default) applies that to every trigger except two, or untick it to type any
+value you like.
 
-The panel shows the live buff state (UP / down / unknown) and a countdown to the
-next automatic fire.
+It applies to: hotkey, button, buff runs out, trapped / stunned / paralyzed.
+It never applies to: first hit and quest start.
 
-Settings live in reframework/data/useful_palico_horn.json:
+Those two are one-shot events; spending an 8 minute cooldown on them would
+block the very triggers you care about later in the hunt.
 
-    {
-      "enabled": true,
-      "hotkey": "599",
-      "min_interval_sec": 0.5,
-      "auto_when_down": false,
-      "global_cooldown_sec": 480,
-      "fire_on_first_hit": false
-    }
+Triggers
+--------
+- On the first hit to the monster
+- At quest start
+- When the monster is trapped
+- When the monster is stunned (KO)
+- When the monster is paralyzed
+- When the buff runs out (keeps it up permanently)
+
+Each fires once per event, not continuously.
+
+Hotkey
+------
+The default is . (period), which the game does not use. To change it, edit
+"hotkey" in reframework/data/useful_palico_horn.json. It stores the raw ImGui
+key value, not a name: . is 599, letters are 546 (A) to 571 (Z).
 
 Notes
 -----
-* This mod plays the Palico's action directly. It does not tune any values and
-  does not touch the horn's cooldown. It is a different product from Otomo
-  Tools, which is a data-only cooldown/counter mod; the two do not conflict.
-* The Palico must have acted at least once in the quest before the hotkey can
-  work - the mod needs to capture its action object.
-* **Default hotkey is `.` (period)**, which the game does not use. Every
-  function key already has a game binding, so F-keys are a bad choice.
-* To change the hotkey, edit "hotkey" in
-  `reframework/data/useful_palico_horn.json`. It is the raw ImGui key value - `.` is
-  599 on this build, letters are 546 (A) to 571 (Z).
+- The Palico must have acted at least once in the quest before the horn can be
+  fired; that is how the mod captures its action object. The panel shows
+  "wait for the Palico to act once" until then.
+- This mod plays the Palico's own action. It does not change game data, and it
+  does not touch Otomo Tools' cooldown values.
+- A log and a trace are written to reframework/data/ if you need to report a
+  problem: useful_palico_horn.json and useful_palico_horn_trace.json.
