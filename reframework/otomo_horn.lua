@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.14.0"
+local VERSION = "0.15.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -215,6 +215,46 @@ end
 -- tried on the status manager and the monster objects, and whichever answers
 -- with a boolean/number is used. The "Dump monster" button records the real
 -- method and field names so these lists can be corrected from data.
+-- app.EnemyDef.CONDITION, read from the live type in game.
+local COND_IDS = {
+    paralyzed = { 5, 6 },          -- PARALYSE, PARALYSE_EM
+    stunned   = { 15, 16 },        -- STUN, STUN_EM
+    trapped   = { 31, 39, 40, 41, 42, 43 },  -- FIELD_PITFALL, TRAP_FALL,
+                                             -- TRAP_PARALYSE, TRAP_IVY, ...
+}
+
+-- cEmModuleConditions:isActive(CONDITION) -> Boolean. nil means the method was
+-- not found, which is different from "not active".
+local function condition_active(cond, value)
+    if cond == nil then return nil end
+    local td = safe(function() return cond:get_type_definition() end)
+    if td == nil then return nil end
+    local found = false
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        if safe(function() return m:get_name() end) == "isActive"
+            and safe(function() return m:get_num_params() end) == 1 then
+            found = true
+            local ok, v = pcall(function() return m:call(cond, value) end)
+            if ok and type(v) == "boolean" then
+                if v then return true end
+            end
+        end
+    end
+    if found then return false end
+    return nil
+end
+
+local function any_condition(cond, ids)
+    local known = false
+    for _, id in ipairs(ids) do
+        local v = condition_active(cond, id)
+        if v ~= nil then known = true end
+        if v == true then return true end
+    end
+    if not known then return nil end
+    return false
+end
+
 local COND_CANDIDATES = {
     paralyzed = { "Paralysis", "IsParalysis", "isParalysis", "Paralyzed",
                   "Paralyze", "IsParalyze", "isParalyze", "ParalysisNow" },
@@ -351,6 +391,17 @@ local function monster_scan()
         state.status_type = sm and safe(function()
             return sm:get_type_definition():get_full_name()
         end) or nil
+        local conditions = nil
+        for _, m in ipairs(state.boss_modules) do
+            if m[1] == "conditions" then conditions = m[2] end
+        end
+
+        -- preferred: ask the condition module directly
+        local para = any_condition(conditions, COND_IDS.paralyzed)
+        local stun = any_condition(conditions, COND_IDS.stunned)
+        local trap = any_condition(conditions, COND_IDS.trapped)
+
+        -- fallback: the old name-based guesses
         local objs = { sm }
         for _, m in ipairs(state.boss_modules) do
             if m[2] ~= nil then objs[#objs + 1] = m[2] end
@@ -358,9 +409,13 @@ local function monster_scan()
         objs[#objs + 1] = state.boss_chara
         objs[#objs + 1] = state.boss_em
         objs[#objs + 1] = state.boss_ctx
-        state.cond.paralyzed = read_flag(objs, COND_CANDIDATES.paralyzed)
-        state.cond.stunned = read_flag(objs, COND_CANDIDATES.stunned)
-        state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped)
+
+        if para ~= nil then state.cond.paralyzed = para
+        else state.cond.paralyzed = read_flag(objs, COND_CANDIDATES.paralyzed) end
+        if stun ~= nil then state.cond.stunned = stun
+        else state.cond.stunned = read_flag(objs, COND_CANDIDATES.stunned) end
+        if trap ~= nil then state.cond.trapped = trap
+        else state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped) end
     else
         state.cond.paralyzed, state.cond.stunned, state.cond.trapped = nil, nil, nil
     end
