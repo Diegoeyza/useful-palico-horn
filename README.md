@@ -37,10 +37,10 @@ does not use it.
 
 | Does | Does not |
 |---|---|
-| Rewrites `_CoolTime` / `_CoolTime_PowerUp` for the tools you pick | Call any game action or animation |
+| Rewrites `_CoolTime` / `_CoolTime_PowerUp` for the tools you pick | Call any action, animation, or game method (no hooks) |
 | Optionally rewrites the 90 s `_GlobalCoolTime` | Write anything it could not read first |
+| Counts horn uses / uptime / uses per 10 min | Change which tool the AI chooses |
 | Restores the shipping values on demand | Touch the game's files or pak |
-| Works in the hub (where the game copies these values into the otomo) | Overflow past the enum (sentinels are filtered) |
 
 ## Presets
 

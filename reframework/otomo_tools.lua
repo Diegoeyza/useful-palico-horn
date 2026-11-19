@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.6.1"
+local VERSION = "1.0.0"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -387,8 +387,6 @@ local DEFAULT_CONFIG = {
     global_cooltime_sec = 0,         -- 0 = leave _GlobalCoolTime alone
     quiet_others = false,            -- push the tools you did NOT pick out of the way
     quiet_cooltime_sec = 3600,       -- how far out (seconds)
-    override_can_use = false,        -- experimental: hook canUseOtomoTool for one tool
-    override_tool = "HORN_ATKUP",
     debug = false,
     tools = {},                      -- [enum member] = { mode = "tune"|"off", cooltime_sec = n }
 }
@@ -441,8 +439,6 @@ local function normalize_config(raw, live_names)
     if raw.quiet_others ~= nil then cfg.quiet_others = raw.quiet_others == true end
     cfg.quiet_cooltime_sec = clamp_sec(raw.quiet_cooltime_sec, 3600)
     if cfg.quiet_cooltime_sec < 60 then cfg.quiet_cooltime_sec = 60 end
-    if raw.override_can_use ~= nil then cfg.override_can_use = raw.override_can_use == true end
-    if type(raw.override_tool) == "string" then cfg.override_tool = raw.override_tool end
     if raw.debug ~= nil then cfg.debug = raw.debug == true end
 
     local known = {}
@@ -598,16 +594,11 @@ local state = {
     buff_type = nil,
     buff_path = nil,
     counter_off = false,
-    mgr_raw = nil,
-    mgr = nil,
-    mgr_type = nil,
-    hook_state = nil,
-    horn_addr = nil,
-    override_state = nil,
     buff_now = nil,
     original = {},        -- enum member -> _CoolTime at first sight
     original_global = nil,
     diag_done = false,
+    runtime_fallback_tried = false,
     misses = 0,
     frame = 0,
     last_status = "(idle)",
@@ -890,8 +881,6 @@ local function counter_snapshot()
             and (math.floor((best.c.uptime / best.c.observed) * 1000 + 0.5) / 10) or nil,
         last_use = best and best.c.last_at or nil,
         signal = best and (best.type .. ":" .. best.method) or nil,
-        override_hits = state.override_hits or 0,
-        horn_addr = state.horn_addr,
         channel_count = #list,
         playing = state.last_playing,
         horn_cooltime = state.params.HORN_ATKUP
@@ -1078,197 +1067,6 @@ local function update_counter()
     if wrote or counter_ticks % 240 == 0 then save_counter() end
 end
 
--- ---------------------------------------------------------------------------
--- always-available override (v0.6.0, experimental)
---
--- requestForceUseOtomoTool() is accepted by the game but the AI ignores it
--- (verified: 10 requests, 0 uses). What the AI does read is
--- cOtomoToolManagedBase.canUseOtomoTool(), so we hook that method and return
--- true for the chosen tool.
---
--- Per REFramework's docs: args[1] = thread context, args[2] = `this`, and the
--- post function's return value replaces the original when it is a valid
--- pointer (sdk.to_ptr(true) for a boolean).
---
--- The hook is installed lazily and only while the user turns it on. The horn's
--- address is resolved OUTSIDE the hook (calling game methods inside a hook is
--- how crashes happen), and the hook body only compares two strings.
--- ---------------------------------------------------------------------------
-
-local function install_manager_hook()
-    if state.hook_state ~= nil then return state.hook_state == "installed" end
-    local td = safe(sdk.find_type_definition, "app.mcOtomoToolManager")
-    if not td then state.hook_state = "type not found" return false end
-    local m = safe(function() return td:get_method("updateMain") end)
-        or safe(function() return td:get_method("onCreate") end)
-    if not m then state.hook_state = "method not found" return false end
-    local ok = safe(function()
-        sdk.hook(m, function(args)
-            if state.mgr_raw == nil and args ~= nil then state.mgr_raw = args[2] end
-        end, function() end)
-        return true
-    end)
-    state.hook_state = ok and "installed" or "hook failed"
-    trace("manager hook: " .. tostring(state.hook_state))
-    return ok == true
-end
-
-local function manager()
-    if state.mgr ~= nil then return state.mgr end
-    local raw = state.mgr_raw
-    if raw == nil then return nil end
-    local obj = nil
-    if type(sdk.to_managed_object) == "function" then
-        obj = safe(sdk.to_managed_object, raw)
-    end
-    if obj == nil then obj = raw end
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return nil end
-    state.mgr = obj
-    state.mgr_type = safe(function() return td:get_full_name() end)
-    trace("manager captured: " .. tostring(state.mgr_type))
-    return obj
-end
-
--- Call a method declared with exactly one parameter.
-local function call_int(obj, methodName, value)
-    if obj == nil then return nil, false end
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return nil, false end
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        if safe(function() return m:get_name() end) == methodName
-            and safe(function() return m:get_num_params() end) == 1 then
-            return safe(function() return m:call(obj, value) end), true
-        end
-    end
-    return nil, false
-end
-
-local function install_override_hook()
-    if state.override_state ~= nil then return state.override_state == "installed" end
-    local td = safe(sdk.find_type_definition, "app.cOtomoToolManagedBase")
-    if not td then state.override_state = "type not found" return false end
-    local m = safe(function() return td:get_method("canUseOtomoTool") end)
-    if not m then state.override_state = "method not found" return false end
-
-    local last_this = nil
-    local ok = safe(function()
-        sdk.hook(m,
-            function(args)
-                -- string compare only: no conversions, no game calls here
-                last_this = args ~= nil and args[2] or nil
-                if state.cfg ~= nil and state.cfg.override_can_use == true
-                    and state.horn_addr ~= nil and last_this ~= nil
-                    and tostring(last_this) == state.horn_addr then
-                    state.override_hits = (state.override_hits or 0) + 1
-                    return sdk.PreHookResult.SKIP_ORIGINAL
-                end
-            end,
-            function(retval)
-                if state.cfg ~= nil and state.cfg.override_can_use == true
-                    and state.horn_addr ~= nil and last_this ~= nil
-                    and tostring(last_this) == state.horn_addr then
-                    return sdk.to_ptr(true)
-                end
-                return retval
-            end)
-        return true
-    end)
-    state.override_state = ok and "installed" or "hook failed"
-    trace("override hook: " .. tostring(state.override_state))
-    return ok == true
-end
-
-local function tool_value(name)
-    for _, t in ipairs(state.tool_values or {}) do
-        if t.name == name then return t.value end
-    end
-    return nil
-end
-
--- Resolve everything OUTSIDE the hook, then install it once.
-local function override_tick()
-    local cfg = state.cfg
-    if not cfg or not cfg.override_can_use then return end
-
-    local flow = quest_flow()
-    if not flow.playing then return end
-
-    if not install_manager_hook() then return end
-    local mgr = manager()
-    if mgr == nil then return end
-
-    if state.horn_addr == nil then
-        local value = tool_value(cfg.override_tool)
-        if value == nil then return end
-        local horn = call_int(mgr, "getOtomoToolManagedClass", value)
-        if horn == nil then return end
-        local ptr = safe(sdk.to_ptr, horn)
-        state.horn_addr = tostring(ptr or horn)
-        trace("override target " .. tostring(cfg.override_tool) .. " @ " .. state.horn_addr)
-    end
-
-    install_override_hook()
-
-    -- outside the hook: report whether it is actually matching
-    if state.override_hits ~= nil and state.override_reported ~= true then
-        state.override_reported = true
-        trace("override matched " .. tostring(state.override_hits) .. " time(s)")
-    end
-end
-
--- ---------------------------------------------------------------------------
-
-local function install_manager_hook()
-    if state.hook_state ~= nil then return state.hook_state == "installed" end
-    local td = safe(sdk.find_type_definition, "app.mcOtomoToolManager")
-    if not td then state.hook_state = "type not found" return false end
-    local m = safe(function() return td:get_method("updateMain") end)
-        or safe(function() return td:get_method("onCreate") end)
-    if not m then state.hook_state = "method not found" return false end
-    local ok = safe(function()
-        sdk.hook(m, function(args)
-            -- store the raw pointer only; nothing is called on it here
-            if state.mgr_raw == nil and args ~= nil then state.mgr_raw = args[2] end
-        end, function() end)
-        return true
-    end)
-    state.hook_state = ok and "installed" or "hook failed"
-    trace("manager hook: " .. tostring(state.hook_state))
-    return ok == true
-end
-
-local function manager()
-    if state.mgr ~= nil then return state.mgr end
-    local raw = state.mgr_raw
-    if raw == nil then return nil end
-    local obj = nil
-    if type(sdk.to_managed_object) == "function" then
-        obj = safe(sdk.to_managed_object, raw)
-    end
-    if obj == nil then obj = raw end
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return nil end
-    state.mgr = obj
-    state.mgr_type = safe(function() return td:get_full_name() end)
-    trace("manager captured: " .. tostring(state.mgr_type))
-    return obj
-end
-
--- Call a method declared with exactly one parameter.
-local function call_int(obj, methodName, value)
-    if obj == nil then return nil, false end
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return nil, false end
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        if safe(function() return m:get_name() end) == methodName
-            and safe(function() return m:get_num_params() end) == 1 then
-            return safe(function() return m:call(obj, value) end), true
-        end
-    end
-    return nil, false
-end
-
 -- One-shot diagnostic: what the field is, why the write failed, and whether the
 -- runtime tool manager is reachable at all. Written once per session.
 local function dump_diagnostic(toolName, paramObj, rec, managedBefore, managedAfter)
@@ -1369,9 +1167,15 @@ local function apply_tuning()
                     tostring(rec.before), tostring(rec.after), strategy))
             else
                 -- The catalog copy refused the write. Try the runtime object
-                -- that actually counts the cooldown.
-                local managed = managed_tool_for(item.name)
-                local before, after = set_managed_cooltime(managed, item.target)
+                -- once per session: the probe showed it is not reachable on
+                -- this build, so a per-tick walk would be wasted work.
+                local managed = nil
+                local before, after = nil, nil
+                if state.runtime_fallback_tried ~= true then
+                    state.runtime_fallback_tried = true
+                    managed = managed_tool_for(item.name)
+                    before, after = set_managed_cooltime(managed, item.target)
+                end
                 if before ~= nil and after ~= nil then
                     writes[#writes + 1] = string.format("%s live %s->%s", item.name,
                         tostring(before), tostring(after))
@@ -1448,11 +1252,6 @@ local function tick()
 
     if not state.cfg then return end
 
-    if state.frame % 30 == 0 then
-        local ok2, err2 = pcall(override_tick)
-        if not ok2 then log.info(TAG .. " override error: " .. tostring(err2)) end
-    end
-
     if not should_tick(state.frame, state.cfg.apply_interval_frames) then return end
     local ok, err = pcall(apply_tuning)
     if not ok then
@@ -1525,19 +1324,6 @@ local function draw_body()
         imgui.text("  other tools -> " .. tostring(state.cfg.quiet_cooltime_sec) .. " s")
     end
 
-    changed, state.cfg.override_can_use =
-        imgui.checkbox("Always available (experimental, hooks the game)", state.cfg.override_can_use)
-    if changed then
-        save_config()
-        trace("override_can_use -> " .. tostring(state.cfg.override_can_use))
-    end
-    if state.cfg.override_can_use then
-        imgui.text(string.format("  %s   manager: %s   override: %s   hits: %d",
-            tostring(state.cfg.override_tool),
-            tostring(state.mgr_type or "not captured"),
-            tostring(state.override_state or "-"),
-            state.override_hits or 0))
-    end
 
     imgui.text("Preset: " .. tostring(state.cfg.preset))
     for _, pname in ipairs({ "horn_attack", "horn_both", "healing" }) do
@@ -1662,10 +1448,6 @@ M._test._rt = {
     discover_channels = discover_channels,
     quiet_targets = quiet_targets,
     revert_quiet = revert_quiet,
-    manager = manager,
-    install_manager_hook = install_manager_hook,
-    install_override_hook = install_override_hook,
-    override_tick = override_tick,
 }
 
 if _G.OTOMO_TOOLS_TEST then

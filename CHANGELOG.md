@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.0.0 — 2026-11-18
+
+Final. What ships is the part that measurably works, with **no hooks at all**.
+
+### What works
+
+- The Palico's tool cooldowns are `app.user_data.OtomoToolParam_*` values, and
+  writing them **does** reach the runtime (verified: live
+  `cOtomoToolManagedBase._CoolTime` for `HORN_ATKUP` read 90 while the untouched
+  `HORN_DEFUP` read 10).
+- Measured effect on the Attack-Up horn: **~1.6–2.0 uses per 10 minutes** with a
+  90 s cooldown, against a hard ceiling of ~1 at the shipping 600 s.
+- The read-only counter reports uses / uptime / uses-per-10-min and is reliable
+  once it resolves the `<StatusManager>` condition manager.
+
+### What was tried and removed
+
+| Lever | Result |
+|---|---|
+| `requestForceUseOtomoTool()` | accepted (`returns true`) but the AI ignores it — 10 requests, 0 uses |
+| Override `cOtomoToolManagedBase.canUseOtomoTool` via hook | matched 16 times in 5 min, still ~1 use: the AI consults that gate only when it already wants the tool |
+| Quiet the other tools (raise their cooldowns) | no change; the cooldown was not the limiter |
+
+The remaining gate is the AI's own selection (desire/lottery), which is not
+exposed. Overriding it would mean driving the action — the crash class this mod
+deliberately avoids.
+
+### Removed in this version
+
+- The manager hook, `requestForceUseOtomoTool` path, and the
+  `canUseOtomoTool` override, plus their config and UI.
+- The mod is back to **zero hooks**; the only runtime fallback (writing the live
+  tool object) is attempted at most once per session and never on this build.
+
+## 0.6.1 — 2026-11-18
+
 ## 0.6.0 — 2026-11-18
 
 `requestForceUseOtomoTool` was measured as **accepted but ignored**: 10 requests
