@@ -19,7 +19,7 @@ or install with Vortex / Fluffy.
 Use
 ---
 1. Enter a quest and let the Palico act once (a few seconds is enough).
-2. Press F6 to fire the horn, or use the "Fire horn now" button in the
+2. Press F9 to fire the horn, or use the "Fire horn now" button in the
    REFramework script list (Otomo Horn v0.2.0).
 3. The horn plays and the Attack-Up buff applies, even if the Palico's own
    cooldown would not have allowed it.
@@ -32,8 +32,8 @@ Automation
   monster first takes damage. Read from `app.EnemyManager` health data; the
   panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
   the fight.
-* **Global cooldown (s)** - minimum time between keep-alive fires, default
-  **480 s (8 minutes)**. Manual fires and the first-hit trigger are not blocked
+* **Use a global cooldown** - toggle, with a seconds value (default
+  **480 s / 8 minutes**) for the keep-alive fires. Manual fires and the first-hit trigger are not blocked
   by it; a 10 s anti-spam gap always applies.
 
 The panel shows the live buff state (UP / down / unknown) and a countdown to the
@@ -43,7 +43,7 @@ Settings live in reframework/data/otomo_horn.json:
 
     {
       "enabled": true,
-      "hotkey": "F6",
+      "hotkey": "F9",
       "min_interval_sec": 0.5,
       "auto_when_down": false,
       "global_cooldown_sec": 480,

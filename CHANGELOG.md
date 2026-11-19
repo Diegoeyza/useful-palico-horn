@@ -1,5 +1,22 @@
 # Changelog
 
+## Otomo Horn 0.4.0 — 2026-11-18
+
+**Critical fix: nothing fired at all.** `REMETHODDefinition:get_full_name()`
+returns `nil` on this build, so the `System.Int32` overload check in 0.3.0 never
+matched, `state.method` stayed nil, and every trigger was skipped with
+"no action method". The signature is now read from `get_param_types()`, which
+does work. (The 0.1.0 probe worked only because it fell back to any 2-param
+overload.)
+
+- **Global cooldown is now a toggle** (`global_cooldown_enabled`), with the
+  seconds value shown only when it is on.
+- Default hotkey moved from **F6 to F9**; F6 opens the game's radial menu.
+- Diagnostics: a `status:` line every ~5 s in the trace (hook, captures, buff,
+  monster, fires, last result), plus a `request:` line for every trigger and a
+  `key pressed` log, so a silent failure is visible without guessing.
+
+
 ## Otomo Horn 0.3.0 — 2026-11-18
 
 - **Fire on the first hit to the monster**: reads the target's health from

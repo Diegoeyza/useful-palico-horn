@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.3.0"
+local VERSION = "0.4.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -40,9 +40,10 @@ local METHOD_NAME = "setActionRequest"
 local state = {
     cfg = {
         enabled = true,
-        hotkey = "F6",
+        hotkey = "F9",
         min_interval_sec = 0.5,
         auto_when_down = false,
+        global_cooldown_enabled = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
     },
@@ -110,6 +111,9 @@ local function load_config()
         c.min_interval_sec = math.max(0, math.min(10, raw.min_interval_sec))
     end
     if raw.auto_when_down ~= nil then c.auto_when_down = raw.auto_when_down == true end
+    if raw.global_cooldown_enabled ~= nil then
+        c.global_cooldown_enabled = raw.global_cooldown_enabled == true
+    end
     if type(raw.global_cooldown_sec) == "number" then
         c.global_cooldown_sec = math.max(0, math.min(3600, raw.global_cooldown_sec))
     end
@@ -311,13 +315,30 @@ end
 
 -- ------------------------------------------------------------------ hook ----
 
+-- Method:get_full_name() returns nil on this build, so the signature comes from
+-- get_param_types(). Everything here must tolerate both.
+local function param_type_names(m)
+    local out = {}
+    local types = safe(function() return m:get_param_types() end)
+    if types ~= nil then
+        for _, t in ipairs(types) do
+            out[#out + 1] = tostring(safe(function() return t:get_full_name() end))
+        end
+    end
+    return out
+end
+
 local function describe(m)
     local full = safe(function() return m:get_full_name() end)
     if full ~= nil then return tostring(full) end
+    local names = param_type_names(m)
     return tostring(safe(function() return m:get_num_params() end))
+        .. "(" .. table.concat(names, ", ") .. ")"
 end
 
 local function first_param_is_int(m)
+    local names = param_type_names(m)
+    if #names > 0 then return names[1] == "System.Int32" end
     local full = safe(function() return m:get_full_name() end)
     if type(full) == "string" then
         return full:find("System.Int32", 1, true) ~= nil
@@ -427,6 +448,7 @@ local function ready_reason()
 end
 
 local function cooldown_left()
+    if state.cfg.global_cooldown_enabled ~= true then return 0 end
     if state.last_fire_time == nil then return 0 end
     local left = (state.cfg.global_cooldown_sec or 0) - (os.time() - state.last_fire_time)
     if left < 0 then return 0 end
@@ -501,7 +523,19 @@ re.on_frame(function()
             local reason = state.pending_fire
             state.pending_fire = nil
             state.pending_kind = nil
+            trace("request: " .. tostring(reason))
             fire(reason)
+        end
+
+        if state.frames % 300 == 0 then
+            local buffv = state.buff == true and "UP"
+                or (state.buff == false and "down" or "?")
+            local monv = state.monster_state == true and "damaged"
+                or (state.monster_state == false and "full" or "?")
+            trace(string.format(
+                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s",
+                tostring(state.hook_note), state.captures, buffv, monv,
+                state.fires, tostring(state.last_result)))
         end
     end)
     if not ok then log.info(TAG .. " frame error: " .. tostring(err)) end
@@ -559,15 +593,22 @@ local function draw_body()
         imgui.checkbox("Fire when the buff is down", state.cfg.auto_when_down)
     if changed then save_config() end
 
-    local cd = state.cfg.global_cooldown_sec or 0
-    changed, cd = imgui.drag_int("Global cooldown (s)", cd, 10, 0, 1800)
-    if changed then
-        state.cfg.global_cooldown_sec = cd
-        save_config()
+    changed, state.cfg.global_cooldown_enabled =
+        imgui.checkbox("Use a global cooldown", state.cfg.global_cooldown_enabled)
+    if changed then save_config() end
+    if state.cfg.global_cooldown_enabled then
+        local cd = state.cfg.global_cooldown_sec or 0
+        changed, cd = imgui.drag_int("  cooldown (s)", cd, 10, 0, 1800)
+        if changed then
+            state.cfg.global_cooldown_sec = cd
+            save_config()
+        end
+        local left = cooldown_left()
+        imgui.text(left > 0 and string.format("  next automatic fire in %d s", left)
+            or "  automatic fire ready")
+    else
+        imgui.text("  cooldown off - fires whenever the trigger says so")
     end
-    local left = cooldown_left()
-    imgui.text(left > 0 and string.format("  next automatic fire in %d s", left)
-        or "  automatic fire ready")
 
     imgui.separator()
     imgui.text("config: " .. CONFIG_FILE)
