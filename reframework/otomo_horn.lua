@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.15.1"
+local VERSION = "0.16.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -46,6 +46,7 @@ local state = {
         use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
+        fire_on_quest_start = false,
         cond_trapped = false,
         cond_stunned = false,
         cond_paralyzed = false,
@@ -77,6 +78,8 @@ local state = {
     cond = { trapped = nil, stunned = nil, paralyzed = nil },
     cond_prev = {},
     cond_logged = false,
+    was_playing = nil,
+    quest_start_pending = false,
     dump_requested = false,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
@@ -139,6 +142,9 @@ local function load_config()
     end
     if raw.fire_on_first_hit ~= nil then
         c.fire_on_first_hit = raw.fire_on_first_hit == true
+    end
+    if raw.fire_on_quest_start ~= nil then
+        c.fire_on_quest_start = raw.fire_on_quest_start == true
     end
     for _, key in ipairs({ "cond_trapped", "cond_stunned", "cond_paralyzed" }) do
         if raw[key] ~= nil then c[key] = raw[key] == true end
@@ -299,6 +305,16 @@ local function status_manager(ctx, em, chara)
         or access(ctx, "StatusManager")
         or access(chara, "Condition") or access(em, "Condition")
         or access(ctx, "Condition")
+end
+
+-- ---------------------------------------------------------------- quest ----
+
+local function quest_playing()
+    local mm = safe(sdk.get_managed_singleton, "app.MissionManager")
+    if mm == nil then return nil end
+    local v = getter(mm, "get_IsPlayingQuest")
+    if type(v) == "boolean" then return v end
+    return nil
 end
 
 -- --------------------------------------------------------------- monster ----
@@ -865,6 +881,20 @@ re.on_frame(function()
 
         if state.frames % 15 == 0 then read_buff() end
         if state.frames % 30 == 0 then monster_scan() end
+
+        if state.frames % 30 == 0 then
+            local playing = quest_playing()
+            if playing ~= nil then
+                if state.was_playing == false and playing == true then
+                    trace("quest start")
+                    state.quest_start_pending = state.cfg.fire_on_quest_start
+                end
+                if playing == false then
+                    state.quest_start_pending = false
+                end
+                state.was_playing = playing
+            end
+        end
         if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 
         local bind_blocked = state.scan ~= nil
@@ -882,6 +912,14 @@ re.on_frame(function()
                 state.pending_fire = "first hit"
                 state.pending_kind = "event"
             end
+        end
+
+        -- quest start: stays armed until the Palico has been captured and the
+        -- horn actually fires (exempt from the cooldown)
+        if state.cfg.fire_on_quest_start and state.quest_start_pending
+            and state.pending_fire == nil and state.self ~= nil then
+            state.pending_fire = "quest start"
+            state.pending_kind = "event"
         end
 
         -- conditional: trapped / stunned / paralyzed, rising edge only
@@ -914,10 +952,19 @@ re.on_frame(function()
             state.pending_fire = nil
             state.pending_kind = nil
             trace("request: " .. tostring(reason))
-            -- only latch the first-hit trigger once a fire actually happened,
-            -- otherwise "wait for the Palico to act once" consumes it forever
-            if fire(reason) and reason == "first hit" then
-                state.first_hit_done = true
+
+            local exempt = (reason == "first hit" or reason == "quest start")
+            local left = cooldown_left()
+            if not exempt and left > 0 then
+                state.last_result = string.format("held by cooldown: %d s left", left)
+                trace("held by cooldown: " .. tostring(reason))
+            else
+                -- latch only on a real fire, otherwise "wait for the Palico to
+                -- act once" consumes the trigger forever
+                if fire(reason) then
+                    if reason == "first hit" then state.first_hit_done = true end
+                    if reason == "quest start" then state.quest_start_pending = false end
+                end
             end
         end
 
@@ -1002,6 +1049,10 @@ local function draw_body()
         imgui.checkbox("Fire on the first hit to the monster", state.cfg.fire_on_first_hit)
     if changed then save_config() end
 
+    changed, state.cfg.fire_on_quest_start =
+        imgui.checkbox("Fire at quest start", state.cfg.fire_on_quest_start)
+    if changed then save_config() end
+
     changed, state.cfg.cond_trapped =
         imgui.checkbox("Fire when the monster is trapped", state.cfg.cond_trapped)
     if changed then save_config() end
@@ -1044,8 +1095,10 @@ local function draw_body()
         end
     end
     local left = cooldown_left()
-    imgui.text(left > 0 and string.format("  next automatic fire in %d s", left)
-        or "  automatic fire ready")
+    imgui.text(left > 0 and string.format("  next buff in %d s", left)
+        or "  buff ready")
+    imgui.text("  applies to: hotkey, button, buff down, trap/stun/paralysis")
+    imgui.text("  never applies to: first hit, quest start")
 
     imgui.separator()
     imgui.text("config: " .. CONFIG_FILE)

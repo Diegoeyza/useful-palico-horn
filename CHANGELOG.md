@@ -1,5 +1,21 @@
 # Changelog
 
+## Otomo Horn 0.16.0 — 2026-11-18
+
+- **Fire at quest start** option: arms on a false->true transition of
+  `MissionManager:get_IsPlayingQuest()` and fires as soon as the Palico has been
+  captured, so it does not depend on anything else happening.
+- **The cooldown now applies to everything except two triggers**: first hit and
+  quest start. Hotkey/button, buff-down and trap/stun/paralysis are all held by
+  it. A press during the cooldown reports `held by cooldown: N s left` instead
+  of silently doing nothing.
+- The panel states the rule explicitly:
+  `applies to: hotkey, button, buff down, trap/stun/paralysis` and
+  `never applies to: first hit, quest start`.
+- The countdown is labelled `next buff in N s` rather than "automatic fire",
+  since it now gates manual fires too.
+
+
 ## Otomo Horn 0.15.1 — 2026-11-18
 
 - `status: not found` was a real bug: the status lookup still asked for

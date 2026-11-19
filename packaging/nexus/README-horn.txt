@@ -37,9 +37,11 @@ Automation
   what the game actually exposes. Read from `app.EnemyManager` health data; the
   panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
   the fight.
-* **Use the base game cooldown** - checked, the keep-alive is gated by the
-  horn's real 8 minute (480 s) cooldown. Unchecked, a box appears for any value
-  you like. Manual fires and the first-hit trigger are not blocked
+* **Use the base game cooldown** - checked, the horn's real 8 minute (480 s)
+  cooldown gates the hotkey, the button, the buff-down keep-alive and the
+  trap/stun/paralysis triggers. Unchecked, a box appears for any value you like.
+  **First hit and quest start are never gated** - they are one-shot events, so
+  spending the cooldown on them would defeat the purpose. Manual fires and the first-hit trigger are not blocked
   by it; a 10 s anti-spam gap always applies.
 
 The panel shows the live buff state (UP / down / unknown) and a countdown to the
