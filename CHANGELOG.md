@@ -1,14 +1,34 @@
 # Changelog
 
-## Unreleased — dev tool: crash test for driving the action
+## Unreleased — dev tools: the crash claim is false, and the action is inert
 
-`tools/otomo_trigger.lua` (not packaged, not part of the mod) calls
-`cOtomoToolManagedBase.useOtomoTool()` exactly once, on demand, to test the
-claim that driving the Palico's action crashes the game on this build. It
-writes a breadcrumb to `otomo_trigger_state.json` *before* the call, so a hard
-crash still records that the call was in flight.
+`tools/otomo_trigger.lua` calls `useOtomoTool()` once on demand. **Result on
+this build: no crash** — returned `Void`, survived 300 frames.
 
-Protocol and result table: `docs/CRASH-TEST.md`.
+But it also did nothing: 0 uses, 0 uptime, no buff. The call is the tail of a
+state machine, and `update()` only enters that state when the tool's predicates
+agree. Driving the action is therefore *safe and useless*, not dangerous.
+
+The dump that came back is the real find — `app.cOtomoToolManaged_Horn_AtkUp`
+exposes:
+
+```
+checkEnable()               Boolean   allowed at all
+isDesireActivate()          Boolean   the AI's desire  <- the gate
+useOtomoToolRequirement()   Boolean   cooldown / range / busy
+useOtomoTool()              Void      performs the use
+update()                    Void      per-frame driver
+```
+
+So the desire gate was never "not exposed"; it is a readable method. `v0.6.0`
+missed it because `canUseOtomoTool` is on the base class and this type does not
+override it — that is why 16 hits changed nothing.
+
+`tools/otomo_watch.lua` reads the three predicates at 10 Hz and records every
+transition, so we can see which one actually blocks and whether "all three" is
+ever true (i.e. whether executing a decision the AI already made would work).
+
+Protocol and results: `docs/CRASH-TEST.md`.
 
 The shipped mod is unchanged: v1.0.1, zero hooks.
 

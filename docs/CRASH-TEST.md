@@ -74,7 +74,45 @@ signature and shows what else the object exposes (`setUseOtomoTool`,
 
 | Date | Build | Outcome | Notes |
 |---|---|---|---|
-| — | — | not yet run | |
+| 2026-11-18 | Otomo Tools v1.0.1, trigger 0.1.0 | **no crash** — `returned`, then `survived` 1 / 60 / 300 frames | `useOtomoTool()` returned `Void` and the game ran on. **The buff never applied**: the counter read 0 uses / 0 uptime for the quest. Safe, but inert. |
+
+### What the call actually did
+
+```
+calling   canUseOtomoTool=n/a tool=userdata: 0000000D80C257B0
+returned  sol.api::sdk::ValueType: ...          <- System.Void
+survived  1 frames / 60 frames / 300 frames
+```
+
+No crash, and no effect. `useOtomoTool()` is the tail of a sequence, not the
+trigger: the tool's own `update()` drives it, and the game only enters that
+state after its predicates agree. Calling it directly is a no-op.
+
+(`canUseOtomoTool=n/a` because that method lives on the base class;
+`app.cOtomoToolManaged_Horn_AtkUp` does not override it. That is also why the
+v0.6.0 override matched 16 times and changed nothing — it was overriding a
+method this path does not consult.)
+
+### The method surface (the useful part)
+
+`app.cOtomoToolManaged_Horn_AtkUp`, 10 methods:
+
+| Method | Returns | Read as |
+|---|---|---|
+| `checkEnable()` | Boolean | is the tool allowed at all |
+| `isDesireActivate()` | Boolean | **does the AI want it right now** — the gate |
+| `useOtomoToolRequirement()` | Boolean | conditions met (cooldown, range, busy) |
+| `useOtomoTool()` | Void | performs the use |
+| `useOtomoToolEnd()` | Void | tears it down |
+| `update()` | Void | the per-frame driver |
+| `setupParam()` | Void | applies the catalog values |
+| `get_ToolType()` | enum | which tool this object is |
+| `onCreate(int,int,int)` | Void | constructor |
+| `.ctor()` | Void | constructor |
+
+So the "desire gate" that was dismissed as *not exposed* **is** exposed as
+`isDesireActivate()`. The question is now measurable: is it ever true, and what
+does it need? That is what `tools/otomo_watch.lua` reads.
 
 ## If it survives
 
