@@ -136,6 +136,34 @@ and the effect through its normal path.
 
 `tools/otomo_desire.lua` tests exactly that.
 
+### On-demand test (12 pulses, one hunt, 317 s)
+
+`isDesireActivate()` forced true for 6 s on each button press, with the counter
+read before and 5 s after to attribute the outcome:
+
+| Press | Since last use | Followed by a use |
+|---|---|---|
+| 22:21:57 | — (no active buff) | **yes** |
+| 22:22:33 | +31 s | no |
+| 22:22:49 | +47 s | no |
+| 22:23:37 | +95 s | no |
+| 22:24:07 | +125 s | no |
+| 22:24:20 | +138 s | no |
+| 22:24:58 | +176 s | no |
+| 22:25:03 | +181 s | no (check slot overwritten) |
+| 22:25:30 | +208 s | no |
+| **22:25:48** | **+226 s** | **yes** |
+
+Two presses, two uses - and they are exactly the two presses made while the
+horn was available. Every blocked press falls inside a ~210-226 s refractory
+period after the previous use, which is far longer than the 30 s `_CoolTime`
+configured for that run (consistent with a ~3 min buff plus the cooldown).
+
+**Conclusion: the horn can be fired on demand, but only once per ~3.5-4
+minutes.** For the speedrun case that is enough: a 5-minute hunt has one usable
+window, and the problem is stopping the AI from spending it early.
+
+
 ## If it survives
 
 Surviving does **not** make action-driving a good design for this mod:

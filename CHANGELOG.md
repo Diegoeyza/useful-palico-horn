@@ -54,6 +54,17 @@ Two things broke the first three attempts at overriding it:
   lookup is not needed at all.
 
 `tools/otomo_desire.lua` hooks `isDesireActivate()` and returns true while armed.
+Measured with on-demand 6 s pulses (12 presses, one 317 s hunt, outcome
+attributed automatically from the counter): **2 presses, 2 uses** - and both
+were the presses made while the horn was available. Every blocked press fell
+inside a ~210-226 s refractory period after the previous use, much longer than
+the 30 s `_CoolTime` configured for that run (consistent with a ~3 min buff plus
+the cooldown).
+
+**The horn fires on demand, once per ~3.5-4 minutes.** Which means the
+speedrun case is solvable by *suppression*, not by forcing: return false from
+`isDesireActivate()` so the AI cannot spend the horn at a random moment, then
+release it when the monster is paralyzed or trapped.
 The game's own `update()` then performs the use, so the animation and effect go
 through the normal path - unlike the crash test, which called the action itself
 and produced nothing.
