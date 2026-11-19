@@ -1155,14 +1155,16 @@ local function install_override_hook()
             function(args)
                 -- string compare only: no conversions, no game calls here
                 last_this = args ~= nil and args[2] or nil
-                if state.horn_addr ~= nil and last_this ~= nil
+                if state.cfg ~= nil and state.cfg.override_can_use == true
+                    and state.horn_addr ~= nil and last_this ~= nil
                     and tostring(last_this) == state.horn_addr then
                     state.override_hits = (state.override_hits or 0) + 1
                     return sdk.PreHookResult.SKIP_ORIGINAL
                 end
             end,
             function(retval)
-                if state.horn_addr ~= nil and last_this ~= nil
+                if state.cfg ~= nil and state.cfg.override_can_use == true
+                    and state.horn_addr ~= nil and last_this ~= nil
                     and tostring(last_this) == state.horn_addr then
                     return sdk.to_ptr(true)
                 end
