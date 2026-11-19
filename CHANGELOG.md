@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-11-18
+
+- Panel shows the live buff state (`buff now: UP / down`) next to the counter.
+  `uptime` only closes when the buff ends, so there was no way to tell from the
+  UI whether it was currently active.
+
 ## Unreleased — dev tools: the crash claim is false, and the action is inert
 
 `tools/otomo_trigger.lua` calls `useOtomoTool()` once on demand. **Result on

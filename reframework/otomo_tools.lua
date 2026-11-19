@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -1420,6 +1420,8 @@ local function draw_body()
         end
         imgui.text(string.format("horn uses: %d   uptime: %s%%   last: %s",
             uses, tostring(pct), tostring(best and best.c.last_at or "-")))
+        local buff = state.buff_now
+        imgui.text("buff now: " .. (buff == true and "UP" or buff == false and "down" or "-"))
         imgui.text(string.format("in quests: %d uses over %d s%s",
             best and (best.c.uses_playing or 0) or 0,
             math.floor(observation.quest_sec),
