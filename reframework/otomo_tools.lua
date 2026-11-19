@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "0.6.0"
+local VERSION = "0.6.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -890,6 +890,8 @@ local function counter_snapshot()
             and (math.floor((best.c.uptime / best.c.observed) * 1000 + 0.5) / 10) or nil,
         last_use = best and best.c.last_at or nil,
         signal = best and (best.type .. ":" .. best.method) or nil,
+        override_hits = state.override_hits or 0,
+        horn_addr = state.horn_addr,
         channel_count = #list,
         playing = state.last_playing,
         horn_cooltime = state.params.HORN_ATKUP
@@ -1207,6 +1209,12 @@ local function override_tick()
     end
 
     install_override_hook()
+
+    -- outside the hook: report whether it is actually matching
+    if state.override_hits ~= nil and state.override_reported ~= true then
+        state.override_reported = true
+        trace("override matched " .. tostring(state.override_hits) .. " time(s)")
+    end
 end
 
 -- ---------------------------------------------------------------------------
