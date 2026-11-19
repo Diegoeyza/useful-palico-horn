@@ -164,6 +164,36 @@ minutes.** For the speedrun case that is enough: a 5-minute hunt has one usable
 window, and the problem is stopping the AI from spending it early.
 
 
+### Action layer (Nexus 627's mechanism, reproduced in Lua)
+
+PalicoMod is a compiled plugin. Reading its strings and disassembly gives the
+mechanism exactly:
+
+- hooks `app.cQuestDirector:acceptQuest` -> sets a flag
+- hooks all three `setActionRequest(...)` overloads -> replaces the requested
+  action id with **0x85** (`cUseHorn`) while the flag is set
+- hooks `app.OtomoCommonAction.cUseHorn:useHornActionDoEnter` -> forces the horn
+  variant, clears the flag
+
+So it does not touch the tool at all: it hijacks the Palico's next *action
+request*. That is why it can fire at quest start, before any cooldown matters.
+
+Lua cannot write a hook argument back into the call frame, so
+`tools/otomo_action.lua` does the equivalent: hook `setActionRequest` read-only,
+capture `this` and the append kind, then call the same method with action 133
+from `on_frame`.
+
+Measured:
+
+| Fire | Result | Buff |
+|---|---|---|
+| 22:47:43 | `called` | applied 2 s later (`isActiveAttackUp #1`) |
+| 22:48:04 | `called` | not counted - buff was already up |
+
+So the action can be fired on demand and applies the buff. Still unmeasured:
+whether a fire *after* the buff drops re-applies it - the second shot above was
+during the buff window, so it proves the animation, not the re-application.
+
 ## If it survives
 
 Surviving does **not** make action-driving a good design for this mod:
