@@ -79,6 +79,8 @@ local function collect(td, name, out, depth)
 end
 
 local function describe(m)
+    local full = safe(function() return m:get_full_name() end)
+    if full ~= nil then return tostring(full) end
     local n = safe(function() return m:get_num_params() end)
     local parts = {}
     local types = safe(function() return m:get_param_types() end)
@@ -91,7 +93,12 @@ local function describe(m)
     return tostring(n) .. "(" .. table.concat(parts, ", ") .. ")"
 end
 
+-- Refuse to guess: calling a struct parameter with an integer is a crash shape.
 local function first_param_is_int(m)
+    local full = safe(function() return m:get_full_name() end)
+    if type(full) == "string" then
+        return full:find("System.Int32", 1, true) ~= nil
+    end
     local types = safe(function() return m:get_param_types() end)
     if types == nil then return false end
     local first = nil
@@ -144,14 +151,11 @@ local function ensure_hooks()
         end
     end
 
-    if st.method == nil and #list > 0 then
-        for _, m in ipairs(list) do
-            if safe(function() return m:get_num_params() end) == 2 then
-                st.method = m
-                st.method_desc = describe(m) .. " (fallback)"
-                break
-            end
-        end
+    if st.method == nil then
+        st.hook_note = tostring(st.hook_note) .. " | no System.Int32 overload found, refusing to call"
+        log.info(TAG .. " no callable overload; see candidates above")
+        flush()
+        return
     end
 
     st.hook_note = st.hooked > 0 and ("hooked " .. st.hooked) or "hook failed"
