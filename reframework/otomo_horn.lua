@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.12.0"
+local VERSION = "0.13.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -72,6 +72,7 @@ local state = {
     boss_chara = nil,
     boss_basic = nil,
     boss_status = nil,
+    boss_modules = {},
     status_type = nil,
     cond = { trapped = nil, stunned = nil, paralyzed = nil },
     cond_prev = {},
@@ -215,11 +216,13 @@ end
 -- with a boolean/number is used. The "Dump monster" button records the real
 -- method and field names so these lists can be corrected from data.
 local COND_CANDIDATES = {
-    paralyzed = { "Paralysis", "IsParalysis", "Paralyzed", "Paralyze",
-                  "IsParalyze", "ParalysisNow" },
-    stunned   = { "Stun", "IsStun", "Stan", "Dizzy", "IsDizzy", "KO", "IsKO" },
-    trapped   = { "Trap", "IsTrap", "Trapped", "IsTrapped", "Capture",
-                  "IsCapture", "IsTrapNow" },
+    paralyzed = { "Paralysis", "IsParalysis", "isParalysis", "Paralyzed",
+                  "Paralyze", "IsParalyze", "isParalyze", "ParalysisNow" },
+    stunned   = { "Stun", "IsStun", "isStun", "Stan", "IsStan", "Dizzy",
+                  "IsDizzy", "isDizzy", "KO", "IsKO" },
+    trapped   = { "Trap", "IsTrap", "isTrap", "Trapped", "IsTrapped",
+                  "isTrapped", "Capture", "IsCapture", "isCapture",
+                  "IsGimmickTrap", "IsTrapNow" },
 }
 
 local function read_flag(objs, names)
@@ -336,12 +339,25 @@ local function monster_scan()
 
     -- status flags, only meaningful while a boss is present
     if state.boss_chara ~= nil then
+        local em = state.boss_em
+        state.boss_modules = {
+            { "conditions", em and access(em, "Conditions") },
+            { "capture", em and access(em, "Capture") },
+            { "catch", em and access(em, "Catch") },
+            { "aistate", em and access(em, "AIStateManager") },
+        }
         local sm = status_manager(state.boss_ctx, state.boss_em, state.boss_chara)
         state.boss_status = sm
         state.status_type = sm and safe(function()
             return sm:get_type_definition():get_full_name()
         end) or nil
-        local objs = { sm, state.boss_chara, state.boss_em, state.boss_ctx }
+        local objs = { sm }
+        for _, m in ipairs(state.boss_modules) do
+            if m[2] ~= nil then objs[#objs + 1] = m[2] end
+        end
+        objs[#objs + 1] = state.boss_chara
+        objs[#objs + 1] = state.boss_em
+        objs[#objs + 1] = state.boss_ctx
         state.cond.paralyzed = read_flag(objs, COND_CANDIDATES.paralyzed)
         state.cond.stunned = read_flag(objs, COND_CANDIDATES.stunned)
         state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped)
@@ -663,6 +679,10 @@ local function dump_monster()
         { "status", state.boss_status },
     }) do
         local rec = dump_obj(e[1], e[2])
+        if rec ~= nil then out.objects[#out.objects + 1] = rec end
+    end
+    for _, m in ipairs(state.boss_modules or {}) do
+        local rec = dump_obj("module:" .. tostring(m[1]), m[2])
         if rec ~= nil then out.objects[#out.objects + 1] = rec end
     end
 

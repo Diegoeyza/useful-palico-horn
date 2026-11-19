@@ -1,5 +1,24 @@
 # Changelog
 
+## Otomo Horn 0.13.0 — 2026-11-18
+
+Structural dump from a hunt showed where the monster state actually lives:
+
+```
+em = app.cEnemyContext
+   Conditions : app.cEmModuleConditions
+   Capture    : app.cEmModuleCapture
+   Catch      : app.cEmModuleCatch
+   AIStateManager, DownDirection, ExtraState, StandState
+chara = app.cCharacterContext   <- only HealthManager + FieldAreaInfo
+```
+
+So the flags are on the enemy *modules*, not under `chara` where 0.12.0 was
+looking. The flag candidates are now tried on `Conditions`, `Capture`, `Catch`
+and `AIStateManager` first, with `isX`-style spellings added, and the dump
+includes those modules' methods and fields so the names can be read directly.
+
+
 ## Otomo Horn 0.12.0 — 2026-11-18
 
 - **Conditional buffing**: `Fire when the monster is trapped / stunned /
