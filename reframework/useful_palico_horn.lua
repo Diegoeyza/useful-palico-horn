@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -79,6 +79,7 @@ local state = {
     cond_prev = {},
     cond_logged = false,
     cond_sig = nil,
+    scan = nil,              -- { started = frame } while binding a hotkey
     was_playing = nil,
     quest_start_pending = false,
     last_req_reason = nil,
@@ -774,6 +775,53 @@ local function key_pressed()
     return pressed(state.key) or pressed(state.key_index)
 end
 
+-- Hotkey binding. imgui.ImGuiKey is empty on this build, so the key is found by
+-- scanning numeric values. 512..600 covers Tab through F12 plus the punctuation
+-- block (period is 599 here); lower values are mouse buttons and out-of-range
+-- garbage. A key must be held for two frames so a stray read cannot bind.
+local SCAN_MIN = 512
+local SCAN_MAX = 600
+
+local function try_scan()
+    if state.scan == nil then return false end
+
+    if (state.frames or 0) - state.scan.started > 600 then
+        state.scan = nil
+        state.last_result = "hotkey unchanged (no key detected)"
+        return false
+    end
+
+    local downs = {}
+    for v = SCAN_MIN, SCAN_MAX do
+        local ok, down = pcall(imgui.is_key_down, v)
+        if ok and down == true then downs[#downs + 1] = v end
+    end
+    if #downs == 0 then
+        state.scan.candidate = nil
+        return false
+    end
+
+    local v = downs[#downs]
+    if state.scan.candidate == v then
+        state.scan.stable = (state.scan.stable or 0) + 1
+    else
+        state.scan.candidate = v
+        state.scan.stable = 1
+    end
+
+    if state.scan.stable >= 2 then
+        state.cfg.hotkey = tostring(v)
+        state.scan = nil
+        state.bind_block_until = (state.frames or 0) + 30
+        resolve_key()
+        save_config()
+        state.last_result = "hotkey bound: " .. tostring(state.key_note)
+        trace("bound hotkey " .. tostring(v))
+        return true
+    end
+    return false
+end
+
 -- ------------------------------------------------------------------ fire ----
 
 local function ready_reason()
@@ -1105,6 +1153,11 @@ local function draw_body()
     end
     imgui.same_line()
     imgui.text("hotkey: " .. tostring(state.key_note))
+    if state.scan ~= nil then
+        imgui.text("  press the new hotkey now (it binds on hold)")
+    elseif imgui.button("Change hotkey") then
+        state.scan = { started = state.frames or 0 }
+    end
     imgui.text("buff: " .. buff_text())
 
     imgui.separator()
@@ -1158,7 +1211,11 @@ local function draw_body()
 end
 
 re.on_draw_ui(function()
-    local okk, pressed_now = pcall(key_pressed)
+    local consumed = try_scan()
+    local okk, pressed_now = false, false
+    if not consumed then
+        okk, pressed_now = pcall(key_pressed)
+    end
     local blocked = state.bind_block_until ~= nil
         and state.frames <= state.bind_block_until
     if okk and pressed_now and not blocked and state.pending_fire == nil then

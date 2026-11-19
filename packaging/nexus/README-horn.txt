@@ -49,9 +49,13 @@ Each fires once per event, not continuously.
 
 Hotkey
 ------
-The default is . (period), which the game does not use. To change it, edit
-"hotkey" in reframework/data/useful_palico_horn.json. It stores the raw ImGui
-key value, not a name: . is 599, letters are 546 (A) to 571 (Z).
+The default is . (period), which the game does not use.
+
+To change it: click **Change hotkey** in the panel, then hold the key you want
+for about a second. It binds on hold, and the panel shows the new key.
+
+Advanced: the value is stored raw in reframework/data/useful_palico_horn.json,
+not as a name - . is 599, letters are 546 (A) to 571 (Z).
 
 Notes
 -----

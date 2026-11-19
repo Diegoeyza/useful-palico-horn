@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.0
+# Nexus page — Useful Palico Horn v1.1.1
 
-Upload `dist/UsefulPalicoHorn-1.1.0.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.1.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -84,7 +84,9 @@ Default Steam path:
 
 The default hotkey is [b].[/b] (period), which the game does not use. Every function key already does something in game, so F-keys are a bad choice.
 
-To change it, edit [b]hotkey[/b] in [code]reframework\data\useful_palico_horn.json[/code]. It stores the raw ImGui key value, not a name: [b].[/b] is 599, letters are 546 (A) to 571 (Z).
+To change it: click [b]Change hotkey[/b] in the panel, then hold the key you want for about a second. It binds on hold, and the panel shows the new key.
+
+Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.json[/code], not as a name - [b].[/b] is 599, letters are 546 (A) to 571 (Z).
 
 [line]
 
@@ -120,6 +122,11 @@ To change it, edit [b]hotkey[/b] in [code]reframework\data\useful_palico_horn.js
 
 [size=5][b]Changelog[/b][/size]
 
+[b]1.1.1[/b]
+[list]
+[*]Change hotkey button: click it, hold the key you want, done. No file editing needed.
+[/list]
+
 [b]1.1.0[/b]
 [list]
 [*]Renamed from Otomo Horn to Useful Palico Horn.
@@ -141,6 +148,9 @@ To change it, edit [b]hotkey[/b] in [code]reframework\data\useful_palico_horn.js
 **Changelog field:**
 
 ```
+1.1.1
+- Change hotkey button: click it, hold the key you want, done. No file editing needed.
+
 1.1.0
 - Renamed from Otomo Horn to Useful Palico Horn.
 - Triggers: first hit, quest start, trapped, stunned, paralyzed, buff runs out, manual hotkey/button.
@@ -149,10 +159,10 @@ To change it, edit [b]hotkey[/b] in [code]reframework\data\useful_palico_horn.js
 - Trap, stun and paralysis verified in game.
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.0.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.1.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.1.0
+- Version: 1.1.1
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)
