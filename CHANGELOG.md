@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — dev tool: crash test for driving the action
+
+`tools/otomo_trigger.lua` (not packaged, not part of the mod) calls
+`cOtomoToolManagedBase.useOtomoTool()` exactly once, on demand, to test the
+claim that driving the Palico's action crashes the game on this build. It
+writes a breadcrumb to `otomo_trigger_state.json` *before* the call, so a hard
+crash still records that the call was in flight.
+
+Protocol and result table: `docs/CRASH-TEST.md`.
+
+The shipped mod is unchanged: v1.0.1, zero hooks.
+
 ## 1.0.1 — 2026-11-18
 
 - Added panel controls for `_GlobalCoolTime` (`-30` / `+30` / **leave as-is**).
