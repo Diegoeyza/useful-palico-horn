@@ -1,5 +1,17 @@
 # Changelog
 
+## Otomo Horn 0.15.1 — 2026-11-18
+
+- `status: not found` was a real bug: the status lookup still asked for
+  `StatusManager`/`Condition` while the actual module is `em.Conditions`
+  (`app.cEmModuleConditions`). The plural is tried first now.
+- Shock traps are not a `FIELD_PITFALL` condition, so `getTrapCondition()` is
+  also consulted as a trap signal (boolean or condition id >= 0).
+- Diagnostics: the trace now carries a one-time `conditions:` line (module type,
+  whether `isActive` was found, and all three flag values) and the periodic
+  `status:` line includes `trap= stun= para=`.
+
+
 ## Otomo Horn 0.15.0 — 2026-11-18
 
 The real API, from a dump taken during a pitfall trap:

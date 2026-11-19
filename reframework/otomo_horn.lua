@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.15.0"
+local VERSION = "0.15.1"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -76,6 +76,7 @@ local state = {
     status_type = nil,
     cond = { trapped = nil, stunned = nil, paralyzed = nil },
     cond_prev = {},
+    cond_logged = false,
     dump_requested = false,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
@@ -244,6 +245,17 @@ local function condition_active(cond, value)
     return nil
 end
 
+-- getTrapCondition() covers traps that are not a single CONDITION id.
+local function trap_condition(cond)
+    if cond == nil then return nil end
+    local m = method0(cond, "getTrapCondition")
+    if m == nil then return nil end
+    local v = safe(function() return m:call(cond) end)
+    if type(v) == "boolean" then return v end
+    if type(v) == "number" then return v >= 0 end
+    return nil
+end
+
 local function any_condition(cond, ids)
     local known = false
     for _, id in ipairs(ids) do
@@ -279,9 +291,14 @@ local function read_flag(objs, names)
 end
 
 local function status_manager(ctx, em, chara)
-    return access(chara, "StatusManager") or access(em, "StatusManager")
-        or access(ctx, "StatusManager") or access(chara, "Condition")
-        or access(em, "Condition") or access(ctx, "Condition")
+    -- the real one is em.Conditions (app.cEmModuleConditions); the singular
+    -- names are kept only as a fallback
+    return access(em, "Conditions") or access(chara, "Conditions")
+        or access(ctx, "Conditions")
+        or access(chara, "StatusManager") or access(em, "StatusManager")
+        or access(ctx, "StatusManager")
+        or access(chara, "Condition") or access(em, "Condition")
+        or access(ctx, "Condition")
 end
 
 -- --------------------------------------------------------------- monster ----
@@ -414,8 +431,23 @@ local function monster_scan()
         else state.cond.paralyzed = read_flag(objs, COND_CANDIDATES.paralyzed) end
         if stun ~= nil then state.cond.stunned = stun
         else state.cond.stunned = read_flag(objs, COND_CANDIDATES.stunned) end
-        if trap ~= nil then state.cond.trapped = trap
-        else state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped) end
+        if trap ~= nil then
+            state.cond.trapped = trap
+        else
+            local by_trap_cond = trap_condition(conditions)
+            if by_trap_cond ~= nil then state.cond.trapped = by_trap_cond
+            else state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped) end
+        end
+
+        if not state.cond_logged then
+            state.cond_logged = true
+            trace("conditions: type=" .. tostring(state.status_type)
+                .. " isActive=" .. tostring(any_condition(conditions, { 5 }) ~= nil)
+                .. " para=" .. tostring(state.cond.paralyzed)
+                .. " stun=" .. tostring(state.cond.stunned)
+                .. " trap=" .. tostring(state.cond.trapped)
+                .. " trapCond=" .. tostring(trap_condition(conditions)))
+        end
     else
         state.cond.paralyzed, state.cond.stunned, state.cond.trapped = nil, nil, nil
     end
@@ -895,9 +927,11 @@ re.on_frame(function()
             local monv = state.monster_state == true and "damaged"
                 or (state.monster_state == false and "full" or "?")
             trace(string.format(
-                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s",
+                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | trap=%s stun=%s para=%s",
                 tostring(state.hook_note), state.captures, buffv, monv,
-                state.fires, tostring(state.last_result)))
+                state.fires, tostring(state.last_result),
+                tostring(state.cond.trapped), tostring(state.cond.stunned),
+                tostring(state.cond.paralyzed)))
         end
     end)
     if not ok then log.info(TAG .. " frame error: " .. tostring(err)) end
