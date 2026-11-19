@@ -25,8 +25,22 @@ missed it because `canUseOtomoTool` is on the base class and this type does not
 override it — that is why 16 hits changed nothing.
 
 `tools/otomo_watch.lua` reads the three predicates at 10 Hz and records every
-transition, so we can see which one actually blocks and whether "all three" is
-ever true (i.e. whether executing a decision the AI already made would work).
+transition. Measured over 190 s in a quest (~18 Hz, 3460 polls):
+
+| Predicate | True | Share |
+|---|---|---|
+| `checkEnable()` | 3460 / 3460 | 100.0 % |
+| `useOtomoToolRequirement()` | 3460 / 3460 | 100.0 % |
+| `isDesireActivate()` | 76 / 3460 | 2.2 % |
+
+One 7 s desire window, and the horn fired inside it. **The only gate that ever
+closes is desire**, which is also why the 90 s cooldown changed so little: the
+cooldown was almost never the blocker.
+
+`tools/otomo_desire.lua` hooks `isDesireActivate()` and returns true while armed.
+The game's own `update()` then performs the use, so the animation and effect go
+through the normal path - unlike the crash test, which called the action itself
+and produced nothing.
 
 Protocol and results: `docs/CRASH-TEST.md`.
 

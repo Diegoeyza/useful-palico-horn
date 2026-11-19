@@ -114,6 +114,28 @@ So the "desire gate" that was dismissed as *not exposed* **is** exposed as
 `isDesireActivate()`. The question is now measurable: is it ever true, and what
 does it need? That is what `tools/otomo_watch.lua` reads.
 
+### Gate breakdown (watcher, 190 s in a quest, ~18 Hz)
+
+| Predicate | True | Share |
+|---|---|---|
+| `checkEnable()` | 3460 / 3460 | **100.0 %** |
+| `useOtomoToolRequirement()` | 3460 / 3460 | **100.0 %** |
+| `isDesireActivate()` | 76 / 3460 | **2.2 %** |
+| all three | 76 / 3460 | 2.2 % |
+
+One desire window, 7 seconds long, and the horn fired inside it (counter: 1
+use). So on this build, in a normal hunt, **the only gate that ever closes is
+desire**. Cooldown, range and state checks were satisfied for the whole fight —
+which also explains why lowering `_CoolTime` to 90 s bought so little: the
+cooldown was almost never what stopped the Palico.
+
+Consequence: the lever is not the data, it is `isDesireActivate()`. Forcing that
+one Boolean to true is the whole problem — and unlike `useOtomoTool()`, it does
+not perform anything, so the game's own `update()` still drives the animation
+and the effect through its normal path.
+
+`tools/otomo_desire.lua` tests exactly that.
+
 ## If it survives
 
 Surviving does **not** make action-driving a good design for this mod:
