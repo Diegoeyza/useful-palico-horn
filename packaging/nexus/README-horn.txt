@@ -19,7 +19,7 @@ or install with Vortex / Fluffy.
 Use
 ---
 1. Enter a quest and let the Palico act once (a few seconds is enough).
-2. Press F9 to fire the horn, or use the "Fire horn now" button in the
+2. Press **.** (period) to fire the horn, or use the "Fire horn now" button in the
    REFramework script list (Otomo Horn v0.2.0).
 3. The horn plays and the Attack-Up buff applies, even if the Palico's own
    cooldown would not have allowed it.
@@ -43,7 +43,7 @@ Settings live in reframework/data/otomo_horn.json:
 
     {
       "enabled": true,
-      "hotkey": "F9",
+      "hotkey": "587",
       "min_interval_sec": 0.5,
       "auto_when_down": false,
       "global_cooldown_sec": 480,
@@ -57,6 +57,8 @@ Notes
   Tools, which is a data-only cooldown/counter mod; the two do not conflict.
 * The Palico must have acted at least once in the quest before the hotkey can
   work - the mod needs to capture its action object.
-* **Every function key already does something in game**, so bind your own:
-  in the panel click *Bind hotkey* and press the key you want (Escape cancels).
-  The chosen key name is written to "hotkey" in the config.
+* **Default hotkey is `.` (period)**, which the game does not use. Every
+  function key already has a game binding, so F-keys are a bad choice.
+* To change it: click *Find my key* in the panel and hold the key you want
+  (letters and punctuation work; some symbols do not report through ImGui).
+  The raw value is written to "hotkey" in the config - `.` is 587.

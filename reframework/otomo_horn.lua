@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.10.1"
+local VERSION = "0.11.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -40,7 +40,7 @@ local METHOD_NAME = "setActionRequest"
 local state = {
     cfg = {
         enabled = true,
-        hotkey = "F9",
+        hotkey = "587",          -- "." (ImGuiKey_Period): unused by the game
         min_interval_sec = 0.5,
         auto_when_down = false,
         use_base_cooldown = true,
@@ -443,7 +443,28 @@ local function build_key_list()
     state.key_list = list
 end
 
+-- ImGui does not expose a key enum on this build (the table is empty), so the
+-- common values are labelled here for display only.
+local KEY_LABELS = {
+    [512] = "Tab", [524] = "Space", [525] = "Enter", [526] = "Esc",
+    [584] = "'", [585] = ",", [586] = "-", [587] = ".", [588] = "/",
+    [589] = ";", [590] = "=", [591] = "[", [592] = "\\", [593] = "]",
+    [594] = "`",
+}
+
+local function key_label(v)
+    if type(v) ~= "number" then return nil end
+    if v >= 546 and v <= 571 then return string.char(65 + (v - 546)) end
+    if v >= 536 and v <= 545 then return tostring(v - 536) end
+    return KEY_LABELS[v]
+end
+
 local function resolve_key()
+    -- must be cleared first: the old value is sticky otherwise, so a rebind
+    -- changed the config string while the mod kept listening on the old key
+    state.key = nil
+    state.key_index = nil
+
     local spec = tostring(state.cfg.hotkey)
     local enum = imgui.ImGuiKey
     if enum ~= nil then
@@ -459,8 +480,12 @@ local function resolve_key()
     if state.key ~= nil and imgui.get_key_index ~= nil then
         state.key_index = safe(imgui.get_key_index, state.key)
     end
-    state.key_note = state.key == nil and ("unknown key '" .. spec .. "'")
-        or (spec .. " (" .. tostring(state.key) .. ")")
+    if state.key == nil then
+        state.key_note = "unknown key '" .. spec .. "'"
+    else
+        local label = key_label(state.key)
+        state.key_note = (label ~= nil and (label .. " ") or "") .. "(" .. tostring(state.key) .. ")"
+    end
     trace("key: " .. state.key_note)
 end
 

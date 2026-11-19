@@ -1,5 +1,16 @@
 # Changelog
 
+## Otomo Horn 0.11.0 — 2026-11-18
+
+- **Default hotkey is now `.` (period, value 587).** It is the one key the game
+  does not use; every function key is bound to something. The config keeps the
+  raw ImGui value, so nothing depends on the (empty) key enum.
+- Fixed the reason rebinding appeared broken: `resolve_key()` never cleared
+  `state.key`, so it stayed on the first value it ever resolved — the panel
+  showed `key: 546 (508)`, config 546 but the mod still listening on 508.
+- The panel now shows a readable label (`hotkey: . (587)`) for the common keys.
+
+
 ## Otomo Horn 0.8.0 — 2026-11-18
 
 - The key scan bound **691**, which is not a key: ImGui's named-key table ends
