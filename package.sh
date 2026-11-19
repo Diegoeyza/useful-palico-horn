@@ -53,8 +53,8 @@ package "reframework/otomo_tools.lua" "otomo-tools" "OtomoTools" \
     "packaging/nexus/README.txt" "Otomo Tools" \
     "Palico tool cooldown tuning and a read-only Attack-Up horn counter."
 
-package "reframework/otomo_horn.lua" "otomo-horn" "OtomoHorn" \
-    "packaging/nexus/README-horn.txt" "Otomo Horn" \
+package "reframework/useful_palico_horn.lua" "useful-palico-horn" "UsefulPalicoHorn" \
+    "packaging/nexus/README-horn.txt" "Useful Palico Horn" \
     "Fires the Palico's Attack-Up horn on command: first hit, quest start, trap, stun, paralysis or when the buff runs out."
 
 echo "Built into $DIST/:"

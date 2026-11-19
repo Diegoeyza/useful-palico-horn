@@ -6,7 +6,7 @@ independently:
 | Mod | File | What it does |
 |---|---|---|
 | **Otomo Tools** | `reframework/otomo_tools.lua` | Data only, zero hooks: rewrites the Palico's tool cooldowns (the Attack-Up horn ships at 600 s), optionally the global cooldown, and counts horn uses / uptime. |
-| **Otomo Horn** | `reframework/otomo_horn.lua` | Fires the horn's action on command (default **F6**), so the buff lands on a paralysis or a trap instead of whenever the AI decides. Bypasses the tool cooldown entirely. |
+| **Useful Palico Horn** | `reframework/useful_palico_horn.lua` | Fires the horn's action on command (default **F6**), so the buff lands on a paralysis or a trap instead of whenever the AI decides. Bypasses the tool cooldown entirely. |
 
 They do not conflict and can run together. Splitting them is deliberate: Otomo
 Tools only writes user data and can never drive the game, while Otomo Horn

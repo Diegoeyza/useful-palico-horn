@@ -1,5 +1,17 @@
 # Changelog
 
+## Useful Palico Horn 1.1.0 — 2026-11-19
+
+- **Renamed** from "Otomo Horn" to **Useful Palico Horn**. "Otomo" is the
+  internal term; the public name now says what it does.
+- File is now `reframework/autorun/useful_palico_horn.lua`; archives are
+  `UsefulPalicoHorn-1.1.0.zip` (Fluffy/Nexus) and
+  `useful-palico-horn-1.1.0.zip` (flat/manual).
+- Config and trace renamed to `useful_palico_horn.json` /
+  `useful_palico_horn_trace.json`. The old `otomo_horn.json` is read once for
+  migration, so existing settings survive the rename.
+
+
 ## Otomo Horn 1.0.3 — verified + packaging — 2026-11-19
 
 **All three conditional triggers now verified in game:**

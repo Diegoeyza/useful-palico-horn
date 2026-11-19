@@ -1,5 +1,5 @@
 --[[
-  otomo_horn.lua - fire the Palico's Attack-Up horn on command.
+  useful_palico_horn.lua - fire the Palico's Attack-Up horn on command.
 
   Sibling of otomo_tools.lua (cooldowns + counter). This one is the timing
   tool: it plays the horn when you decide, so the buff lands where it matters
@@ -28,11 +28,11 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.0.3"
-local TAG = "[OtomoHorn] "
+local VERSION = "1.1.0"
+local TAG = "[UsefulPalicoHorn] "
 
-local CONFIG_FILE = "otomo_horn.json"
-local TRACE_FILE = "otomo_horn_trace.json"
+local CONFIG_FILE = "useful_palico_horn.json"
+local TRACE_FILE = "useful_palico_horn_trace.json"
 local HORN_ACTION = 0x85
 local ACTION_TYPE = "app.OtomoCharacter"
 local METHOD_NAME = "setActionRequest"
@@ -124,8 +124,11 @@ end
 
 -- ---------------------------------------------------------------- config ----
 
+local LEGACY_CONFIG = "otomo_horn.json"
+
 local function load_config()
     local raw = safe(json.load_file, CONFIG_FILE)
+    if type(raw) ~= "table" then raw = safe(json.load_file, LEGACY_CONFIG) end
     if type(raw) ~= "table" then return end
     local c = state.cfg
     if raw.enabled ~= nil then c.enabled = raw.enabled == true end
@@ -381,7 +384,7 @@ local function dump_conditions(cond, reason)
         end
     end
 
-    pcall(json.dump_file, "otomo_conditions.json", out)
+    pcall(json.dump_file, "useful_palico_horn_conditions.json", out)
     trace("conditions dump (" .. tostring(reason) .. ") " .. #out.elements .. " elements")
 end
 
@@ -1163,7 +1166,7 @@ re.on_draw_ui(function()
         state.pending_kind = "event"
     end
 
-    if not imgui.tree_node("Otomo Horn v" .. VERSION) then return end
+    if not imgui.tree_node("Useful Palico Horn v" .. VERSION) then return end
     local ok, err = pcall(draw_body)
     safe(function() imgui.tree_pop() end)
     if not ok then log.info(TAG .. " draw error: " .. tostring(err)) end

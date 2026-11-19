@@ -1,5 +1,5 @@
-Otomo Horn
-==========
+Useful Palico Horn
+==================
 
 Fires the Palico's Attack-Up horn on command, for timing it to a paralysis, a
 trap or a down instead of leaving it to the AI.
@@ -14,7 +14,7 @@ Install with **Fluffy Manager** or Vortex, or extract the archive straight into
 your game folder (the archive root contains `reframework\autorun\`, so it
 lands correctly):
 
-    MonsterHunterWilds\reframework\autorun\otomo_horn.lua
+    MonsterHunterWilds\reframework\autorun\useful_palico_horn.lua
 
 Works alongside Otomo Tools; they are independent.
 
@@ -22,7 +22,7 @@ Use
 ---
 1. Enter a quest and let the Palico act once (a few seconds is enough).
 2. Press **.** (period) to fire the horn, or use the "Fire horn now" button in the
-   REFramework script list (Otomo Horn v0.2.0).
+   REFramework script list (Useful Palico Horn v1.1.0).
 3. The horn plays and the Attack-Up buff applies, even if the Palico's own
    cooldown would not have allowed it.
 
@@ -49,7 +49,7 @@ Automation
 The panel shows the live buff state (UP / down / unknown) and a countdown to the
 next automatic fire.
 
-Settings live in reframework/data/otomo_horn.json:
+Settings live in reframework/data/useful_palico_horn.json:
 
     {
       "enabled": true,
@@ -70,5 +70,5 @@ Notes
 * **Default hotkey is `.` (period)**, which the game does not use. Every
   function key already has a game binding, so F-keys are a bad choice.
 * To change the hotkey, edit "hotkey" in
-  `reframework/data/otomo_horn.json`. It is the raw ImGui key value - `.` is
+  `reframework/data/useful_palico_horn.json`. It is the raw ImGui key value - `.` is
   599 on this build, letters are 546 (A) to 571 (Z).
