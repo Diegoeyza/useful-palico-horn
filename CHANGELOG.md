@@ -37,6 +37,22 @@ One 7 s desire window, and the horn fired inside it. **The only gate that ever
 closes is desire**, which is also why the 90 s cooldown changed so little: the
 cooldown was almost never the blocker.
 
+Two things broke the first three attempts at overriding it:
+
+- `sdk.hook()` returns `nil` on this build **even when it installs**. Calls are the
+  only reliable success signal (5949 in 58 s).
+- `getOtomoToolManagedClass(HORN_ATKUP)` returns a **different object** than the
+  one whose `isDesireActivate()` the AI updates:
+
+  ```
+  hook `this`:  userdata: 0000000CB046EA40   <- the runtime object
+  manager:      userdata: 0000000D80C257B0   <- not this one
+  ```
+
+  Every earlier version filtered on the manager's address, so nothing matched.
+  `distinct_this` is 1, so "force on every call" is unambiguous and the manager
+  lookup is not needed at all.
+
 `tools/otomo_desire.lua` hooks `isDesireActivate()` and returns true while armed.
 The game's own `update()` then performs the use, so the animation and effect go
 through the normal path - unlike the crash test, which called the action itself
