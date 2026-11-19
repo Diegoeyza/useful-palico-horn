@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.3"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -364,12 +364,18 @@ local function dump_conditions(cond, reason)
                 type = etd and safe(function() return etd:get_full_name() end) or nil,
                 values = {},
             }
-            for _, f in ipairs(safe(function() return etd:get_fields() end) or {}) do
-                local fn = safe(function() return f:get_name() end)
-                local fv = safe(function() return f:get_data(el) end)
-                if fn ~= nil and (type(fv) == "number" or type(fv) == "boolean") then
-                    rec.values[fn] = fv
+            local walk, depth = etd, 0
+            while walk ~= nil and depth < 4 do
+                for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
+                    local fn = safe(function() return f:get_name() end)
+                    local fv = safe(function() return f:get_data(el) end)
+                    if fn ~= nil and (type(fv) == "number" or type(fv) == "boolean")
+                        and rec.values[fn] == nil then
+                        rec.values[fn] = fv
+                    end
                 end
+                walk = safe(function() return walk:get_parent_type() end)
+                depth = depth + 1
             end
             out.elements[#out.elements + 1] = rec
         end
@@ -377,6 +383,18 @@ local function dump_conditions(cond, reason)
 
     pcall(json.dump_file, "otomo_conditions.json", out)
     trace("conditions dump (" .. tostring(reason) .. ") " .. #out.elements .. " elements")
+end
+
+local function bad_condition_type(cond)
+    if cond == nil then return nil end
+    local m = method0(cond, "getBadCondition")
+    if m == nil then return nil end
+    local obj = safe(function() return m:call(cond) end)
+    if obj == nil then return nil end
+    local t = as_number(field_value(obj, "_ConditionType"))
+    if t ~= nil then return t end
+    local td = safe(function() return obj:get_type_definition() end)
+    return td and safe(function() return td:get_full_name() end) or nil
 end
 
 local function cond_signature(cond)
@@ -387,6 +405,22 @@ local function cond_signature(cond)
         local b = condition_method_bool(cond, "isActualActive", id)
         parts[#parts + 1] = tostring(id) .. "=" .. tostring(a) .. "/" .. tostring(b)
     end
+    parts[#parts + 1] = "bad=" .. tostring(bad_condition_type(cond))
+
+    -- counters straight off the array elements: if isActive lies, these still
+    -- change and force a dump
+    local arr = field_value(cond, "_Conditions")
+    if arr ~= nil then
+        for _, id in ipairs({ 15, 16 }) do
+            local el = safe(function() return arr[id] end)
+            local count = el and as_number(field_value(el, "_Count"))
+            local sec = el and as_number(field_value(el, "_ActiveSec"))
+            local acc = el and as_number(field_value(el, "_Accumulation"))
+            parts[#parts + 1] = string.format("stun%d=%s/%s/%s",
+                id, tostring(count), tostring(sec), tostring(acc))
+        end
+    end
+
     return table.concat(parts, " ")
 end
 
