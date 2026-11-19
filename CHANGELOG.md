@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 — 2026-11-18
+
+`requestForceUseOtomoTool` was measured as **accepted but ignored**: 10 requests
+over 4 minutes, every one returned true, the AI never acted, 0 uses. The one use
+in the previous run happened only because that build asked while
+`canUseOtomoTool` (desire included) was already true — i.e. the Palico had
+decided to play it anyway.
+
+- Removed the force-use path (dead lever, dead code).
+- Added **Always available (experimental)**: hooks
+  `app.cOtomoToolManagedBase.canUseOtomoTool` and returns `true` for the chosen
+  tool. Per REFramework's docs, `args[2]` is `this` and the post function's
+  return value replaces the original (`sdk.to_ptr(true)` for a boolean), with
+  `SKIP_ORIGINAL` in the pre.
+- The horn's address is resolved **outside** the hook (calling game methods
+  inside a hook is a crash surface); the hook body only compares two strings.
+- Off by default, lazy install, and the panel shows `override: installed` plus a
+  live `hits` counter so it is obvious whether the hook is matching at all.
+
 ## 0.5.0 — 2026-11-18
 
 **The probe settled both questions.**
