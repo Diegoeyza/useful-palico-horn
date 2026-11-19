@@ -1,5 +1,20 @@
 # Changelog
 
+## Otomo Horn 0.7.0 — 2026-11-18
+
+- **Key binding could never work as written.** `imgui.ImGuiKey` is an empty
+  table on this build (so there were no names to bind), and the numeric fallback
+  scanned 150 values per frame with `is_key_pressed`, which is edge-triggered -
+  a press was only seen if the key's value happened to be in the chunk being
+  scanned on that exact frame.
+- The scan now runs the **whole range (0..700) every frame** using
+  `is_key_down` (level-triggered) and binds the highest value found, so a
+  modifier combo binds the actual key rather than Ctrl/Shift. The trace records
+  the bound value and every value that was down.
+- Confirmed from REFramework's source that `imgui.is_key_pressed(int)` takes the
+  raw `ImGuiKey` value, so a numeric hotkey in the config is valid.
+
+
 ## Otomo Horn 0.5.0 — 2026-11-18
 
 - **Bind the hotkey in the panel.** Every function key already does something

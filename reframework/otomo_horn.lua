@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.5.0"
+local VERSION = "0.7.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -81,6 +81,7 @@ local state = {
     key_note = "-",
     binding = false,
     key_list = nil,
+    scan = nil,             -- { i = next value, max = limit }
     bind_block_until = nil,
 
     trace = {},
@@ -511,8 +512,8 @@ re.on_frame(function()
         if state.frames % 15 == 0 then read_buff() end
         if state.frames % 30 == 0 then monster_scan() end
 
-        local bind_blocked = state.bind_block_until ~= nil
-            and state.frames <= state.bind_block_until
+        local bind_blocked = state.scan ~= nil
+            or (state.bind_block_until ~= nil and state.frames <= state.bind_block_until)
         if state.pending_fire == nil and not bind_blocked and key_pressed() then
             state.pending_fire = "hotkey"
             state.pending_kind = "event"
@@ -585,11 +586,20 @@ local function draw_body()
 
     imgui.text("hook:    " .. tostring(state.hook_note))
     imgui.text("hotkey:  " .. tostring(state.key_note))
-    if state.binding then
+    if state.scan ~= nil then
+        imgui.text("  scanning... press the key now")
+    elseif state.binding then
         imgui.text("  press a key to bind it (Escape cancels)")
     else
-        if imgui.button("Bind hotkey") then
-            state.binding = true
+        if not (state.key_list ~= nil and #state.key_list > 0) then
+            if imgui.button("Find my key (press it after clicking)") then
+                state.scan = { i = 0, max = 700, step = 150 }
+                trace("scan started")
+            end
+        else
+            if imgui.button("Bind hotkey") then
+                state.binding = true
+            end
         end
     end
     imgui.text("buff:    " .. buff_text())
@@ -642,6 +652,37 @@ local function draw_body()
     imgui.text("config: " .. CONFIG_FILE)
 end
 
+-- imgui.ImGuiKey is empty on this build, so names cannot be bound. is_key_pressed
+-- is edge-triggered, which makes a chunked scan miss most presses, so scan the
+-- whole numeric range every frame with is_key_down (level-triggered) instead.
+local function try_scan()
+    if state.scan == nil then return false end
+    local downs = {}
+    for v = 0, state.scan.max do
+        local ok, down = pcall(imgui.is_key_down, v)
+        if ok and down == true then downs[#downs + 1] = v end
+    end
+
+    if #downs == 0 then
+        if (state.frames or 0) % 60 == 0 then
+            trace("scan: no key down (0.." .. tostring(state.scan.max) .. ")")
+        end
+        return false
+    end
+
+    -- Prefer the highest value: modifiers (Ctrl/Shift/Alt) sit lower than the
+    -- letter and function keys, so a combo binds the real key.
+    local v = downs[#downs]
+    state.cfg.hotkey = tostring(v)
+    state.scan = nil
+    state.bind_block_until = (state.frames or 0) + 30
+    resolve_key()
+    save_config()
+    trace("scan bound raw key " .. tostring(v)
+        .. " (down: " .. table.concat(downs, ",") .. ")")
+    return true
+end
+
 -- While binding, any key press becomes the hotkey. This sidesteps both the
 -- enum-naming problem and the fact that every function key is already bound
 -- to something in the game.
@@ -673,13 +714,13 @@ local function try_bind()
 end
 
 re.on_draw_ui(function()
-    local consumed = try_bind()
+    local consumed = try_scan() or try_bind()
     local okk, pressed_now = false, false
     if not consumed then
         okk, pressed_now = pcall(key_pressed)
     end
-    local blocked = state.bind_block_until ~= nil
-        and state.frames <= state.bind_block_until
+    local blocked = state.scan ~= nil
+        or (state.bind_block_until ~= nil and state.frames <= state.bind_block_until)
     if okk and pressed_now and not blocked
         and not state.binding and state.pending_fire == nil then
         state.pending_fire = "hotkey"
