@@ -1,5 +1,21 @@
 # Changelog
 
+## Otomo Horn 1.0.3 — verified + packaging — 2026-11-19
+
+**All three conditional triggers now verified in game:**
+
+```
+PARALYSE   cond change: 5=true/true   -> fire #1 monster paralyzed
+STUN (KO)  cond change: 15=true/true  -> fire #1 monster stunned
+FIELD_PITFALL  ... trap=true          -> fired
+```
+
+- Packaging: the Nexus-layout zips now include `modinfo.ini` (name, version,
+  description) so Fluffy Manager / Vortex list them properly.
+- Fluffy installs these by extracting into the game folder; the archive root
+  already contains `reframework/autorun/`, which is what it needs.
+
+
 ## Otomo Horn 1.0.1 — 2026-11-18
 
 Debugging why paralysis and stun never register while `FIELD_PITFALL` does.

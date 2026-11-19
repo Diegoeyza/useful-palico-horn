@@ -10,11 +10,13 @@ REFramework (with Lua support). Nothing else.
 
 Install
 -------
-Extract into your game folder so that you end up with:
+Install with **Fluffy Manager** or Vortex, or extract the archive straight into
+your game folder (the archive root contains `reframework\autorun\`, so it
+lands correctly):
 
     MonsterHunterWilds\reframework\autorun\otomo_horn.lua
 
-or install with Vortex / Fluffy.
+Works alongside Otomo Tools; they are independent.
 
 Use
 ---
