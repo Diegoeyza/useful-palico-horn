@@ -32,8 +32,9 @@ Automation
   monster first takes damage. Read from `app.EnemyManager` health data; the
   panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
   the fight.
-* **Use a global cooldown** - toggle, with a seconds value (default
-  **480 s / 8 minutes**) for the keep-alive fires. Manual fires and the first-hit trigger are not blocked
+* **Use the base game cooldown** - checked, the keep-alive is gated by the
+  horn's real 8 minute (480 s) cooldown. Unchecked, a box appears for any value
+  you like. Manual fires and the first-hit trigger are not blocked
   by it; a 10 s anti-spam gap always applies.
 
 The panel shows the live buff state (UP / down / unknown) and a countdown to the

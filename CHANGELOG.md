@@ -1,5 +1,13 @@
 # Changelog
 
+## Otomo Horn 0.11.1 — 2026-11-18
+
+- **Base game cooldown is 8 minutes (480 s)**, hardcoded. It was reading
+  `_Horn_AtkUp._CoolTime` from the tool params, which is *user data* - so with
+  Otomo Tools installed it reported the rewritten value (30 s) instead of the
+  game default. The panel now shows `game cooldown: 480 s (8 min)`.
+
+
 ## Otomo Horn 0.11.0 — 2026-11-18
 
 - **Default hotkey is now `.` (period, value 587).** It is the one key the game

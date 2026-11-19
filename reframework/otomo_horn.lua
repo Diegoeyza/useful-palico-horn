@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.11.0"
+local VERSION = "0.11.1"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -286,23 +286,13 @@ local function monster_scan()
     end
 end
 
--- The Attack-Up horn's own cooldown, straight from the tool params. This is the
--- "base game cooldown": 600 s in vanilla, or whatever Otomo Tools has written.
+-- The horn's shipping cooldown is 8 minutes. Do NOT read _CoolTime from the
+-- tool params: that is user data, so Otomo Tools rewrites it (to 30 s in our
+-- tests) and this would report the edit back instead of the game default.
+local BASE_GAME_COOLDOWN = 480
+
 local function read_base_cooldown()
-    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
-    if om == nil then return nil end
-    local catalog = getter(om, "get_Catalog")
-    if catalog == nil then catalog = field_value(om, "_Catalog") end
-    local gp = catalog and getter(catalog, "get_GlobalParam")
-    if gp == nil and catalog ~= nil then gp = field_value(catalog, "_GlobalParam") end
-    local root = gp and getter(gp, "get_OtomoToolParam")
-    if root == nil and gp ~= nil then root = field_value(gp, "_OtomoToolParam") end
-    if root == nil then return nil end
-    local horn = field_value(root, "_Horn_AtkUp")
-    if horn == nil then return nil end
-    local v = field_value(horn, "_CoolTime")
-    if type(v) == "number" and v >= 0 then return v end
-    return nil
+    return BASE_GAME_COOLDOWN
 end
 
 -- ------------------------------------------------------------------ buff ----
@@ -697,8 +687,8 @@ local function draw_body()
         imgui.checkbox("Use the base game cooldown", state.cfg.use_base_cooldown)
     if changed then save_config() end
     if state.cfg.use_base_cooldown then
-        imgui.text(string.format("  game cooldown: %s s",
-            state.base_cooldown ~= nil and tostring(state.base_cooldown) or "unknown (600)"))
+        imgui.text(string.format("  game cooldown: %d s (8 min)",
+            state.base_cooldown or BASE_GAME_COOLDOWN))
     else
         local cd = state.cfg.global_cooldown_sec or 0
         changed, cd = imgui.drag_int("  cooldown (s)", cd, 10, 0, 1800)
