@@ -67,7 +67,6 @@ Notes
   work - the mod needs to capture its action object.
 * **Default hotkey is `.` (period)**, which the game does not use. Every
   function key already has a game binding, so F-keys are a bad choice.
-* To change it: click *Find my key* in the panel and hold the key you want
-  (letters and punctuation work; some symbols do not report through ImGui).
-  The raw value is written to "hotkey" in the config - `.` is 599 on this
-  build.
+* To change the hotkey, edit "hotkey" in
+  `reframework/data/otomo_horn.json`. It is the raw ImGui key value - `.` is
+  599 on this build, letters are 546 (A) to 571 (Z).

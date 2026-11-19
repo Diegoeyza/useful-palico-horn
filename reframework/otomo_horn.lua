@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.16.2"
+local VERSION = "1.0.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -100,9 +100,6 @@ local state = {
     key = nil,
     key_index = nil,
     key_note = "-",
-    binding = false,
-    key_list = nil,
-    scan = nil,             -- { i = next value, max = limit }
     bind_block_until = nil,
 
     trace = {},
@@ -618,27 +615,9 @@ end
 
 -- ----------------------------------------------------------------- input ----
 
-local function build_key_list()
-    local enum = imgui.ImGuiKey
-    if type(enum) ~= "table" then
-        state.key_list = nil
-        return
-    end
-    local list = {}
-    for k, v in pairs(enum) do
-        if type(k) == "string" and type(v) == "number" then
-            list[#list + 1] = { name = k, value = v }
-        end
-    end
-    table.sort(list, function(a, b) return a.name < b.name end)
-    state.key_list = list
-end
-
--- ImGui does not expose a key enum on this build (the table is empty), so the
--- common values are labelled here for display only.
+-- ImGui exposes no key enum on this build, so common values are labelled here
+-- for display only. "." reports as 599 (stock ImGui uses 587).
 local KEY_LABELS = {
-    -- Confirmed on this build: "." reports as 599 (not 587 as in stock ImGui),
-    -- so only values actually seen in game are labelled here.
     [599] = ".",
 }
 
@@ -899,8 +878,8 @@ re.on_frame(function()
         end
         if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 
-        local bind_blocked = state.scan ~= nil
-            or (state.bind_block_until ~= nil and state.frames <= state.bind_block_until)
+        local bind_blocked = state.bind_block_until ~= nil
+            and state.frames <= state.bind_block_until
         if state.pending_fire == nil and not bind_blocked and key_pressed() then
             state.pending_fire = "hotkey"
             state.pending_kind = "event"
@@ -1009,40 +988,8 @@ end
 local function draw_body()
     local changed
 
-    imgui.text("Plays the Attack-Up horn on command (action layer).")
-    imgui.text("The tool cooldown and the AI's desire are not involved.")
-    imgui.separator()
+    imgui.text("Fires the Attack-Up horn on command.")
 
-    imgui.text("hook:    " .. tostring(state.hook_note))
-    imgui.text("hotkey:  " .. tostring(state.key_note))
-    if state.scan ~= nil then
-        imgui.text("  scanning... press the key now")
-    elseif state.binding then
-        imgui.text("  press a key to bind it (Escape cancels)")
-    else
-        if not (state.key_list ~= nil and #state.key_list > 0) then
-            if imgui.button("Find my key (press it after clicking)") then
-                state.scan = { started = state.frames or 0 }
-                trace("scan started")
-            end
-
-        else
-            if imgui.button("Bind hotkey") then
-                state.binding = true
-            end
-        end
-    end
-    imgui.text("buff:    " .. buff_text())
-    imgui.text("monster: " .. monster_text() .. "   " .. tostring(state.monster_note))
-    if state.captured_at ~= nil then
-        imgui.text(string.format("captured: %d calls, last %d frames ago",
-            state.captures, state.frames - state.captured_at))
-    else
-        imgui.text("captured: none yet (the Palico must act once)")
-    end
-    imgui.text("fires:   " .. tostring(state.fires) .. "   last: " .. tostring(state.last_result))
-
-    imgui.separator()
     changed, state.cfg.enabled = imgui.checkbox("Enabled", state.cfg.enabled)
     if changed then save_config() end
 
@@ -1050,6 +997,9 @@ local function draw_body()
         state.pending_fire = "button"
         state.pending_kind = "event"
     end
+    imgui.same_line()
+    imgui.text("hotkey: " .. tostring(state.key_note))
+    imgui.text("buff: " .. buff_text())
 
     imgui.separator()
     imgui.text("Cooldown")
@@ -1070,139 +1020,42 @@ local function draw_body()
     local left = cooldown_left()
     imgui.text(left > 0 and string.format("  next buff in %d s", left)
         or "  buff ready")
-    imgui.text("  when on, EVERY trigger below uses this cooldown")
-    imgui.text("  except: first hit and quest start (one-shot events)")
+    imgui.text("  applies to every trigger below,")
+    imgui.text("  except first hit and quest start")
 
     imgui.separator()
     imgui.text("Triggers")
     changed, state.cfg.fire_on_first_hit =
-        imgui.checkbox("Fire on the first hit to the monster", state.cfg.fire_on_first_hit)
+        imgui.checkbox("On the first hit to the monster", state.cfg.fire_on_first_hit)
     if changed then save_config() end
 
     changed, state.cfg.fire_on_quest_start =
-        imgui.checkbox("Fire at quest start", state.cfg.fire_on_quest_start)
+        imgui.checkbox("At quest start", state.cfg.fire_on_quest_start)
     if changed then save_config() end
 
     changed, state.cfg.cond_trapped =
-        imgui.checkbox("Fire when the monster is trapped", state.cfg.cond_trapped)
+        imgui.checkbox("When the monster is trapped", state.cfg.cond_trapped)
     if changed then save_config() end
     changed, state.cfg.cond_stunned =
-        imgui.checkbox("Fire when the monster is stunned", state.cfg.cond_stunned)
+        imgui.checkbox("When the monster is stunned", state.cfg.cond_stunned)
     if changed then save_config() end
     changed, state.cfg.cond_paralyzed =
-        imgui.checkbox("Fire when the monster is paralyzed", state.cfg.cond_paralyzed)
+        imgui.checkbox("When the monster is paralyzed", state.cfg.cond_paralyzed)
     if changed then save_config() end
-
-    local function tri(v)
-        if v == true then return "yes" end
-        if v == false then return "no" end
-        return "?"
-    end
-    imgui.text("  flags: trap=" .. tri(state.cond.trapped)
-        .. " stun=" .. tri(state.cond.stunned)
-        .. " para=" .. tri(state.cond.paralyzed))
-    imgui.text("  condition module: " .. tostring(state.status_type or "not found"))
 
     changed, state.cfg.auto_when_down =
-        imgui.checkbox("Fire when the buff is down", state.cfg.auto_when_down)
+        imgui.checkbox("When the buff runs out", state.cfg.auto_when_down)
     if changed then save_config() end
 
-    if imgui.button("Dump monster structure") then
-        state.dump_requested = true
-    end
-
     imgui.separator()
-    imgui.text("config: " .. CONFIG_FILE)
-end
-
--- imgui.ImGuiKey is empty on this build, so names cannot be bound. Values are
--- scanned numerically, but only up to 600: ImGui's named-key table ends around
--- 616 and reading past it returns garbage (a scan up to 700 "found" 691, which
--- is not a key at all). A press must also be stable for two frames.
-local SCAN_MIN = 512          -- below this are mouse buttons and legacy keys
-local SCAN_MAX = 600
-
-local function try_scan()
-    if state.scan == nil then return false end
-
-    if (state.frames or 0) - state.scan.started > 600 then
-        state.scan = nil
-        trace("scan cancelled (10 s timeout)")
-        return false
-    end
-
-    local downs = {}
-    for v = SCAN_MIN, SCAN_MAX do
-        local ok, down = pcall(imgui.is_key_down, v)
-        if ok and down == true then downs[#downs + 1] = v end
-    end
-
-    if #downs == 0 then
-        state.scan.candidate = nil
-        return false
-    end
-
-    -- highest value wins: modifiers sit lower than letters and function keys
-    local v = downs[#downs]
-    if state.scan.candidate == v then
-        state.scan.stable = (state.scan.stable or 0) + 1
-    else
-        state.scan.candidate = v
-        state.scan.stable = 1
-    end
-
-    if state.scan.stable >= 2 then
-        state.cfg.hotkey = tostring(v)
-        state.scan = nil
-        state.bind_block_until = (state.frames or 0) + 30
-        resolve_key()
-        save_config()
-        trace("scan bound raw key " .. tostring(v))
-        return true
-    end
-    return false
-end
-
--- While binding, any key press becomes the hotkey. This sidesteps both the
--- enum-naming problem and the fact that every function key is already bound
--- to something in the game.
-local function try_bind()
-    if not state.binding then return false end
-    if state.key_list == nil then return false end
-    for _, k in ipairs(state.key_list) do
-        local hit = pressed(k.value)
-        if not hit and imgui.get_key_index ~= nil then
-            local idx = safe(imgui.get_key_index, k.value)
-            hit = pressed(idx)
-        end
-        if hit then
-            if k.name == "Escape" then
-                state.binding = false
-                trace("bind cancelled")
-                return true
-            end
-            state.cfg.hotkey = k.name
-            state.binding = false
-            state.bind_block_until = (state.frames or 0) + 30
-            resolve_key()
-            save_config()
-            trace("bound key " .. k.name)
-            return true
-        end
-    end
-    return false
+    imgui.text("last: " .. tostring(state.last_result))
 end
 
 re.on_draw_ui(function()
-    local consumed = try_scan() or try_bind()
-    local okk, pressed_now = false, false
-    if not consumed then
-        okk, pressed_now = pcall(key_pressed)
-    end
-    local blocked = state.scan ~= nil
-        or (state.bind_block_until ~= nil and state.frames <= state.bind_block_until)
-    if okk and pressed_now and not blocked
-        and not state.binding and state.pending_fire == nil then
+    local okk, pressed_now = pcall(key_pressed)
+    local blocked = state.bind_block_until ~= nil
+        and state.frames <= state.bind_block_until
+    if okk and pressed_now and not blocked and state.pending_fire == nil then
         state.pending_fire = "hotkey"
         state.pending_kind = "event"
     end
@@ -1214,7 +1067,6 @@ re.on_draw_ui(function()
 end)
 
 load_config()
-build_key_list()
 resolve_key()
 state.base_cooldown = read_base_cooldown()
 trace("base cooldown: " .. tostring(state.base_cooldown))

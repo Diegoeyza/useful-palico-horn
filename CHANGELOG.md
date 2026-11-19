@@ -1,5 +1,40 @@
 # Changelog
 
+## Otomo Horn 1.0.0 — 2026-11-18
+
+Release UI. The panel now contains only what a player needs:
+
+```
+Fires the Attack-Up horn on command.
+[x] Enabled        [Fire horn now]   hotkey: . (599)
+buff: UP
+
+Cooldown           [x] Use the base game cooldown
+                     game cooldown: 480 s (8 min)
+                     next buff in 431 s
+                     applies to every trigger below,
+                     except first hit and quest start
+
+Triggers           [ ] On the first hit to the monster
+                   [ ] At quest start
+                   [ ] When the monster is trapped
+                   [ ] When the monster is stunned
+                   [ ] When the monster is paralyzed
+                   [ ] When the buff runs out
+
+last: fired (first hit)
+```
+
+Removed from the UI: hook state, capture counters, monster HP, condition flags,
+the condition module name, the config path, and the monster-structure dump
+button. All of it still goes to `otomo_horn_trace.json`, so debugging does not
+depend on the panel.
+
+Also removed the in-game key rebinding code (`imgui.ImGuiKey` is an empty table
+on this build, which is why it never worked). The hotkey lives in
+`otomo_horn.json`; the default is `.` = 599.
+
+
 ## Otomo Horn 0.16.2 — 2026-11-18
 
 - Panel order now states the rule before the options: **Cooldown** sits above
