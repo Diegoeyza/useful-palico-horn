@@ -1,5 +1,21 @@
 # Changelog
 
+## Otomo Horn 0.3.0 — 2026-11-18
+
+- **Fire on the first hit to the monster**: reads the target's health from
+  `app.EnemyManager` (`_EnemyList` -> array -> `Context` -> `Chara` ->
+  `HealthManager` -> `Health`/`MaxHealth`, boss-filtered via `Em.Basic.IsBoss`)
+  and fires once when HP first drops below max. The latch re-arms when the
+  monster is back at full HP, so the next hunt/monster triggers again.
+- Every accessor is attempted as `get_X()`, `X()`, `_X` and `X`, and the trace
+  records which spelling worked, because the exact names could not be verified
+  offline.
+- The panel shows `monster: full HP / damaged` with the HP values, so a wrong
+  chain is visible immediately instead of silently doing nothing.
+- Event triggers (first hit, manual) are not gated by the global cooldown; only
+  the keep-alive ("fire when the buff is down") is.
+
+
 ## Otomo Horn 0.2.0 — 2026-11-18
 
 - **Fire when the buff is down**: automatic re-fire as soon as the Attack-Up

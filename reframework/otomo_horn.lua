@@ -2,8 +2,8 @@
   otomo_horn.lua - fire the Palico's Attack-Up horn on command.
 
   Sibling of otomo_tools.lua (cooldowns + counter). This one is the timing
-  tool: it plays the horn when you decide, so the buff lands on a paralysis or
-  a trap instead of whenever the AI feels like it.
+  tool: it plays the horn when you decide, so the buff lands where it matters
+  instead of whenever the AI feels like it.
 
   Mechanism (from Nexus 627 PalicoMod.dll, verified in game): replay the
   Palico's own action request with the horn's action id.
@@ -12,19 +12,23 @@
       fire: setActionRequest(this, 0x85, appendKind)   -- 0x85 = cUseHorn
 
   The tool's desire gate, cooldown and ~4 min refractory are not involved: this
-  is the action layer. Verified repeating and after the buff expires.
+  is the action layer. Verified repeating, and after the buff expires.
 
   Triggers
   --------
-    - hotkey (default F6) or the panel button
-    - "fire when the buff is down": keeps the buff up automatically
-    - global cooldown (default 480 s) that gates automatic fires
+    - hotkey (default F6) or the panel button          -- always available
+    - fire when the buff goes down                     -- keeps it up, gated by
+                                                          the global cooldown
+    - fire on the first hit to the monster             -- event trigger
+    (later: trapped / stunned / paralyzed)
 
-  The buff state is read from the Palico's own condition manager
-  (isActiveAttackUp), the same object the Otomo Tools counter uses.
+  Buff state comes from the Palico's condition manager (isActiveAttackUp).
+  Monster state comes from app.EnemyManager -> _EnemyList -> array, with the
+  HP chain Context -> Chara -> HealthManager. Every accessor is tried as a
+  getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -40,6 +44,7 @@ local state = {
         min_interval_sec = 0.5,
         auto_when_down = false,
         global_cooldown_sec = 480,
+        fire_on_first_hit = false,
     },
 
     frames = 0,
@@ -53,14 +58,22 @@ local state = {
     captures = 0,
 
     condition = nil,
-    buff = nil,             -- true / false / nil (unknown)
+    buff = nil,
     buff_checked = 0,
+
+    monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
+    monster_hp = nil,
+    monster_max = nil,
+    monster_note = "-",
+    first_hit_done = false,
+    chain_logged = false,
 
     fires = 0,
     last_result = "-",
     last_fire_frame = 0,
-    last_fire_time = nil,   -- os.time of the last fire
+    last_fire_time = nil,
     pending_fire = nil,
+    pending_kind = nil,      -- "event" or "auto"
 
     key = nil,
     key_index = nil,
@@ -81,7 +94,7 @@ end
 
 local function trace(line)
     state.trace[#state.trace + 1] = clock() .. " " .. line
-    while #state.trace > 200 do table.remove(state.trace, 1) end
+    while #state.trace > 240 do table.remove(state.trace, 1) end
     pcall(json.dump_file, TRACE_FILE, { version = VERSION, lines = state.trace })
 end
 
@@ -100,6 +113,9 @@ local function load_config()
     if type(raw.global_cooldown_sec) == "number" then
         c.global_cooldown_sec = math.max(0, math.min(3600, raw.global_cooldown_sec))
     end
+    if raw.fire_on_first_hit ~= nil then
+        c.fire_on_first_hit = raw.fire_on_first_hit == true
+    end
 end
 
 local function save_config()
@@ -108,17 +124,27 @@ end
 
 -- ------------------------------------------------------------ reflection ----
 
-local function getter(obj, name)
+local function method0(obj, name)
     if obj == nil then return nil end
     local td = safe(function() return obj:get_type_definition() end)
     local depth = 0
     while td and depth < 8 do
-        local m = safe(function() return td:get_method(name .. "()") end)
-        if m then return safe(function() return m:call(obj) end) end
+        for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+            if safe(function() return m:get_name() end) == name
+                and safe(function() return m:get_num_params() end) == 0 then
+                return m
+            end
+        end
         td = safe(function() return td:get_parent_type() end)
         depth = depth + 1
     end
     return nil
+end
+
+local function getter(obj, name)
+    local m = method0(obj, name)
+    if m == nil then return nil end
+    return safe(function() return m:call(obj) end)
 end
 
 local function field_descriptor(obj, name)
@@ -140,25 +166,117 @@ local function field_value(obj, name)
     return safe(function() return f:get_data(obj) end)
 end
 
-local function method0(obj, name)
-    local td = safe(function() return obj:get_type_definition() end)
-    local depth = 0
-    while td and depth < 8 do
-        for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-            if safe(function() return m:get_name() end) == name
-                and safe(function() return m:get_num_params() end) == 0 then
-                return m
+-- Tries get_X(), X(), _X, X. Records which spelling worked, once.
+local function access(obj, name)
+    if obj == nil then return nil, nil end
+    for _, get in ipairs({ "get_" .. name, name }) do
+        local v = getter(obj, get)
+        if v ~= nil then return v, get .. "()" end
+    end
+    for _, fname in ipairs({ "_" .. name, name }) do
+        local v = field_value(obj, fname)
+        if v ~= nil then return v, fname end
+    end
+    return nil, nil
+end
+
+local function as_number(v)
+    if type(v) == "number" then return v end
+    return nil
+end
+
+-- --------------------------------------------------------------- monster ----
+
+local function enemy_array()
+    local mgr = safe(sdk.get_managed_singleton, "app.EnemyManager")
+    if mgr == nil then return nil end
+    local list, how = access(mgr, "EnemyList")
+    if list == nil then return nil end
+    local arr = safe(function() return list:call("get_Array") end)
+    return arr or list
+end
+
+local function array_len(arr)
+    local n = safe(function() return arr:get_Count() end)
+        or safe(function() return arr:get_Size() end)
+    if type(n) == "number" then return math.floor(n) end
+    return 0
+end
+
+local function monster_scan()
+    local arr = enemy_array()
+    if arr == nil then
+        state.monster_state = nil
+        state.monster_note = "no EnemyManager"
+        return
+    end
+
+    local n = array_len(arr)
+    if n == 0 then
+        state.monster_state = nil
+        state.monster_note = "empty list"
+        return
+    end
+
+    local damaged, full, seen = false, false, false
+    local best_hp, best_max, best_boss = nil, nil, false
+
+    for i = 0, math.min(n - 1, 15) do
+        local entry = safe(function() return arr[i] end)
+        if entry ~= nil then
+            local valid = access(entry, "CharacterValid")
+            if valid ~= false then
+                local ctx = access(entry, "Context")
+                local em = ctx and access(ctx, "Em")
+                local basic = em and access(em, "Basic")
+                local boss = basic and access(basic, "IsBoss")
+
+                local chara = ctx and access(ctx, "Chara")
+                local health = chara and access(chara, "HealthManager")
+                local hp = health and as_number(access(health, "Health"))
+                local maxhp = health and as_number(access(health, "MaxHealth"))
+
+                if hp ~= nil and maxhp ~= nil and maxhp > 0 then
+                    seen = true
+                    if boss == true then
+                        best_hp, best_max, best_boss = hp, maxhp, true
+                    elseif best_hp == nil then
+                        best_hp, best_max = hp, maxhp
+                    end
+                    if hp < maxhp then damaged = true end
+                    if hp >= maxhp then full = true end
+                end
             end
         end
-        td = safe(function() return td:get_parent_type() end)
-        depth = depth + 1
     end
-    return nil
+
+    if not seen then
+        state.monster_state = nil
+        state.monster_note = "no health manager"
+        return
+    end
+
+    state.monster_hp = best_hp
+    state.monster_max = best_max
+    state.monster_note = string.format("%s/%s%s",
+        tostring(best_hp), tostring(best_max), best_boss and " boss" or "")
+
+    if damaged then
+        state.monster_state = true
+    elseif full then
+        state.monster_state = false
+    else
+        state.monster_state = nil
+    end
+
+    if not state.chain_logged then
+        state.chain_logged = true
+        trace("monster chain ok: " .. state.monster_note)
+    end
 end
 
 -- ------------------------------------------------------------------ buff ----
 
--- Same object the Otomo Tools counter reads.
 local function resolve_condition()
     local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
     if om == nil then return nil end
@@ -177,19 +295,10 @@ local function resolve_condition()
 end
 
 local function read_buff()
-    if state.condition == nil then
-        state.condition = resolve_condition()
-    end
-    if state.condition == nil then
-        state.buff = nil
-        return nil
-    end
+    if state.condition == nil then state.condition = resolve_condition() end
+    if state.condition == nil then state.buff = nil return nil end
     local m = method0(state.condition, "isActiveAttackUp")
-    if m == nil then
-        state.condition = nil
-        state.buff = nil
-        return nil
-    end
+    if m == nil then state.condition = nil state.buff = nil return nil end
     local v = safe(function() return m:call(state.condition) end)
     if type(v) ~= "boolean" then
         state.condition = nil
@@ -208,7 +317,6 @@ local function describe(m)
     return tostring(safe(function() return m:get_num_params() end))
 end
 
--- Refuse to guess: an integer argument for a struct parameter is a crash shape.
 local function first_param_is_int(m)
     local full = safe(function() return m:get_full_name() end)
     if type(full) == "string" then
@@ -275,31 +383,21 @@ end
 local function resolve_key()
     local spec = tostring(state.cfg.hotkey)
     local enum = imgui.ImGuiKey
-
     if enum ~= nil then
         for _, name in ipairs({ spec, "ImGuiKey_" .. spec, string.upper(spec) }) do
             local v = enum[name]
-            if v ~= nil then
-                state.key = v
-                break
-            end
+            if v ~= nil then state.key = v break end
         end
     end
     if state.key == nil then
         local n = tonumber(spec)
         if n ~= nil then state.key = n end
     end
-
     if state.key ~= nil and imgui.get_key_index ~= nil then
         state.key_index = safe(imgui.get_key_index, state.key)
     end
-
-    if state.key == nil then
-        state.key_note = "unknown key '" .. spec .. "'"
-    else
-        state.key_note = spec .. " (" .. tostring(state.key)
-            .. (state.key_index ~= nil and (", idx " .. tostring(state.key_index)) or "") .. ")"
-    end
+    state.key_note = state.key == nil and ("unknown key '" .. spec .. "'")
+        or (spec .. " (" .. tostring(state.key) .. ")")
     trace("key: " .. state.key_note)
 end
 
@@ -319,10 +417,6 @@ local function ready_reason()
     if not state.cfg.enabled then return "disabled" end
     if state.method == nil then return "no action method" end
     if state.self == nil then return "wait for the Palico to act once" end
-    if state.captured_at ~= nil
-        and (state.frames - state.captured_at) > 60 * 60 * 10 then
-        return "capture is 10+ minutes old"
-    end
     local self = safe(sdk.to_managed_object, state.self)
     if self == nil then return "stale object" end
     local tn = safe(function() return self:get_type_definition():get_full_name() end)
@@ -330,6 +424,13 @@ local function ready_reason()
         return "object is " .. tostring(tn)
     end
     return nil
+end
+
+local function cooldown_left()
+    if state.last_fire_time == nil then return 0 end
+    local left = (state.cfg.global_cooldown_sec or 0) - (os.time() - state.last_fire_time)
+    if left < 0 then return 0 end
+    return left
 end
 
 local function fire(reason)
@@ -353,20 +454,10 @@ local function fire(reason)
     state.fires = state.fires + 1
     state.last_fire_frame = state.frames
     state.last_fire_time = os.time()
-    if ok then
-        state.last_result = "fired (" .. tostring(reason) .. ")"
-    else
-        state.last_result = "error: " .. tostring(ret)
-    end
+    state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
+        or ("error: " .. tostring(ret))
     trace("fire #" .. state.fires .. " " .. tostring(reason) .. " -> " .. tostring(state.last_result))
     return ok
-end
-
-local function cooldown_left()
-    if state.last_fire_time == nil then return 0 end
-    local left = (state.cfg.global_cooldown_sec or 0) - (os.time() - state.last_fire_time)
-    if left < 0 then return 0 end
-    return left
 end
 
 -- ----------------------------------------------------------------- frame ----
@@ -376,27 +467,40 @@ re.on_frame(function()
         install()
         state.frames = state.frames + 1
 
-        -- buff every ~0.25 s
         if state.frames % 15 == 0 then read_buff() end
+        if state.frames % 30 == 0 then monster_scan() end
 
-        -- hotkey also polled here in case the draw callback is not running
         if state.pending_fire == nil and key_pressed() then
             state.pending_fire = "hotkey"
+            state.pending_kind = "event"
         end
 
-        -- automatic: buff down, past the global cooldown
+        -- event trigger: first damage to the monster
+        if state.cfg.fire_on_first_hit and state.pending_fire == nil then
+            if state.monster_state == false then
+                state.first_hit_done = false     -- full hp again: new hunt/monster
+            elseif state.monster_state == true and state.first_hit_done == false then
+                state.first_hit_done = true
+                state.pending_fire = "first hit"
+                state.pending_kind = "event"
+            end
+        end
+
+        -- keep-alive: buff down, gated by the global cooldown
         if state.cfg.auto_when_down and state.buff == false
-            and state.pending_fire == nil then
-            local since_fire = state.last_fire_frame == 0 and 999999
+            and state.pending_fire == nil and cooldown_left() == 0 then
+            local since = state.last_fire_frame == 0 and 999999
                 or (state.frames - state.last_fire_frame)
-            if cooldown_left() == 0 and since_fire > 600 then
-                state.pending_fire = "auto (buff down)"
+            if since > 600 then
+                state.pending_fire = "buff down"
+                state.pending_kind = "auto"
             end
         end
 
         if state.pending_fire ~= nil then
             local reason = state.pending_fire
             state.pending_fire = nil
+            state.pending_kind = nil
             fire(reason)
         end
     end)
@@ -411,6 +515,12 @@ local function buff_text()
     return "unknown"
 end
 
+local function monster_text()
+    if state.monster_state == true then return "damaged" end
+    if state.monster_state == false then return "full HP" end
+    return "unknown"
+end
+
 local function draw_body()
     local changed
 
@@ -421,6 +531,7 @@ local function draw_body()
     imgui.text("hook:    " .. tostring(state.hook_note))
     imgui.text("hotkey:  " .. tostring(state.key_note))
     imgui.text("buff:    " .. buff_text())
+    imgui.text("monster: " .. monster_text() .. "   " .. tostring(state.monster_note))
     if state.captured_at ~= nil then
         imgui.text(string.format("captured: %d calls, last %d frames ago",
             state.captures, state.frames - state.captured_at))
@@ -435,10 +546,15 @@ local function draw_body()
 
     if imgui.button("Fire horn now") then
         state.pending_fire = "button"
+        state.pending_kind = "event"
     end
 
     imgui.separator()
     imgui.text("Automation")
+    changed, state.cfg.fire_on_first_hit =
+        imgui.checkbox("Fire on the first hit to the monster", state.cfg.fire_on_first_hit)
+    if changed then save_config() end
+
     changed, state.cfg.auto_when_down =
         imgui.checkbox("Fire when the buff is down", state.cfg.auto_when_down)
     if changed then save_config() end
@@ -450,11 +566,8 @@ local function draw_body()
         save_config()
     end
     local left = cooldown_left()
-    if left > 0 then
-        imgui.text(string.format("  next automatic fire in %d s", left))
-    else
-        imgui.text("  automatic fire ready")
-    end
+    imgui.text(left > 0 and string.format("  next automatic fire in %d s", left)
+        or "  automatic fire ready")
 
     imgui.separator()
     imgui.text("config: " .. CONFIG_FILE)
@@ -464,6 +577,7 @@ re.on_draw_ui(function()
     local okk, pressed_now = pcall(key_pressed)
     if okk and pressed_now and state.pending_fire == nil then
         state.pending_fire = "hotkey"
+        state.pending_kind = "event"
     end
 
     if not imgui.tree_node("Otomo Horn v" .. VERSION) then return end
@@ -475,8 +589,6 @@ end)
 load_config()
 resolve_key()
 
--- Key diagnostics: if the hotkey still does not fire, this line in
--- otomo_horn_trace.json tells us the exact enum names this build exposes.
 do
     local enum = imgui.ImGuiKey
     if enum == nil then

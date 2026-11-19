@@ -28,9 +28,13 @@ Automation
 ----------
 * **Fire when the buff is down** - fires automatically as soon as the
   Attack-Up buff expires, keeping it up permanently.
-* **Global cooldown (s)** - minimum time between automatic fires, default
-  **480 s (8 minutes)**. Manual fires are never blocked by it.
-* A global cooldown of 0 still enforces a 10 s anti-spam gap.
+* **Fire on the first hit to the monster** - fires once as soon as the target
+  monster first takes damage. Read from `app.EnemyManager` health data; the
+  panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
+  the fight.
+* **Global cooldown (s)** - minimum time between keep-alive fires, default
+  **480 s (8 minutes)**. Manual fires and the first-hit trigger are not blocked
+  by it; a 10 s anti-spam gap always applies.
 
 The panel shows the live buff state (UP / down / unknown) and a countdown to the
 next automatic fire.
@@ -42,7 +46,8 @@ Settings live in reframework/data/otomo_horn.json:
       "hotkey": "F6",
       "min_interval_sec": 0.5,
       "auto_when_down": false,
-      "global_cooldown_sec": 480
+      "global_cooldown_sec": 480,
+      "fire_on_first_hit": false
     }
 
 Notes
