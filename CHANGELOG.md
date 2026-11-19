@@ -1,5 +1,19 @@
 # Changelog
 
+## Otomo Horn 0.12.0 — 2026-11-18
+
+- **Conditional buffing**: `Fire when the monster is trapped / stunned /
+  paralyzed`, each on a rising edge so it fires once per event, not every scan.
+- Flags are read from the monster's status manager (`Chara`/`Em`/`Context` ->
+  `StatusManager` or `Condition`) with several candidate accessor names, and the
+  panel shows the live state: `flags: trap=? stun=? para=?`.
+- **Dump monster structure** button: writes the real type, method and field
+  names of `ctx`, `em`, `basic`, `chara` and `status` to
+  `monster_flags.json` (read-only). The accessor names for these three flags are
+  not documented anywhere, so this is how they get corrected from data instead
+  of guessed again.
+
+
 ## Otomo Horn 0.11.2 — 2026-11-18
 
 - Default hotkey corrected to **599**, which is what `.` reports on this build

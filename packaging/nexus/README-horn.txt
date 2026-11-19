@@ -29,7 +29,11 @@ Automation
 * **Fire when the buff is down** - fires automatically as soon as the
   Attack-Up buff expires, keeping it up permanently.
 * **Fire on the first hit to the monster** - fires once as soon as the target
-  monster first takes damage. Read from `app.EnemyManager` health data; the
+  monster first takes damage.
+* **Fire when the monster is trapped / stunned / paralyzed** - each fires once
+  per event. The live state is shown as `flags: trap=.. stun=.. para=..`; if a
+  flag reads `?` the accessor is not found and *Dump monster structure* records
+  what the game actually exposes. Read from `app.EnemyManager` health data; the
   panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
   the fight.
 * **Use the base game cooldown** - checked, the keep-alive is gated by the

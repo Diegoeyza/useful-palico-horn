@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.11.2"
+local VERSION = "0.12.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -46,6 +46,9 @@ local state = {
         use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
+        cond_trapped = false,
+        cond_stunned = false,
+        cond_paralyzed = false,
     },
 
     frames = 0,
@@ -64,6 +67,15 @@ local state = {
 
     base_cooldown = nil,
     base_checked = 0,
+    boss_ctx = nil,
+    boss_em = nil,
+    boss_chara = nil,
+    boss_basic = nil,
+    boss_status = nil,
+    status_type = nil,
+    cond = { trapped = nil, stunned = nil, paralyzed = nil },
+    cond_prev = {},
+    dump_requested = false,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
     monster_max = nil,
@@ -125,6 +137,9 @@ local function load_config()
     end
     if raw.fire_on_first_hit ~= nil then
         c.fire_on_first_hit = raw.fire_on_first_hit == true
+    end
+    for _, key in ipairs({ "cond_trapped", "cond_stunned", "cond_paralyzed" }) do
+        if raw[key] ~= nil then c[key] = raw[key] == true end
     end
 end
 
@@ -195,6 +210,37 @@ local function as_number(v)
     return nil
 end
 
+-- Status flags. The exact accessor names are not documented, so several are
+-- tried on the status manager and the monster objects, and whichever answers
+-- with a boolean/number is used. The "Dump monster" button records the real
+-- method and field names so these lists can be corrected from data.
+local COND_CANDIDATES = {
+    paralyzed = { "Paralysis", "IsParalysis", "Paralyzed", "Paralyze",
+                  "IsParalyze", "ParalysisNow" },
+    stunned   = { "Stun", "IsStun", "Stan", "Dizzy", "IsDizzy", "KO", "IsKO" },
+    trapped   = { "Trap", "IsTrap", "Trapped", "IsTrapped", "Capture",
+                  "IsCapture", "IsTrapNow" },
+}
+
+local function read_flag(objs, names)
+    for _, obj in ipairs(objs) do
+        if obj ~= nil then
+            for _, n in ipairs(names) do
+                local v = access(obj, n)
+                if type(v) == "boolean" then return v end
+                if type(v) == "number" then return v > 0 end
+            end
+        end
+    end
+    return nil
+end
+
+local function status_manager(ctx, em, chara)
+    return access(chara, "StatusManager") or access(em, "StatusManager")
+        or access(ctx, "StatusManager") or access(chara, "Condition")
+        or access(em, "Condition") or access(ctx, "Condition")
+end
+
 -- --------------------------------------------------------------- monster ----
 
 local function enemy_array()
@@ -242,6 +288,10 @@ local function monster_scan()
                 local boss = basic and access(basic, "IsBoss")
 
                 local chara = ctx and access(ctx, "Chara")
+                if boss == true and state.boss_chara == nil then
+                    state.boss_ctx, state.boss_em = ctx, em
+                    state.boss_chara, state.boss_basic = chara, basic
+                end
                 local health = chara and access(chara, "HealthManager")
                 local hp = health and as_number(access(health, "Health"))
                 local maxhp = health and as_number(access(health, "MaxHealth"))
@@ -283,6 +333,37 @@ local function monster_scan()
         state.chain_logged = true
         trace("monster chain ok: " .. state.monster_note)
     end
+
+    -- status flags, only meaningful while a boss is present
+    if state.boss_chara ~= nil then
+        local sm = status_manager(state.boss_ctx, state.boss_em, state.boss_chara)
+        state.boss_status = sm
+        state.status_type = sm and safe(function()
+            return sm:get_type_definition():get_full_name()
+        end) or nil
+        local objs = { sm, state.boss_chara, state.boss_em, state.boss_ctx }
+        state.cond.paralyzed = read_flag(objs, COND_CANDIDATES.paralyzed)
+        state.cond.stunned = read_flag(objs, COND_CANDIDATES.stunned)
+        state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped)
+    else
+        state.cond.paralyzed, state.cond.stunned, state.cond.trapped = nil, nil, nil
+    end
+end
+
+-- Rising-edge detection: fire once when a monitored flag turns true.
+local function cond_trigger()
+    local c = state.cond
+    local prev = state.cond_prev
+    local what = nil
+    if state.cfg.cond_trapped and c.trapped == true and prev.trapped ~= true then
+        what = "monster trapped"
+    elseif state.cfg.cond_stunned and c.stunned == true and prev.stunned ~= true then
+        what = "monster stunned"
+    elseif state.cfg.cond_paralyzed and c.paralyzed == true and prev.paralyzed ~= true then
+        what = "monster paralyzed"
+    end
+    state.cond_prev = { trapped = c.trapped, stunned = c.stunned, paralyzed = c.paralyzed }
+    return what
 end
 
 -- The horn's shipping cooldown is 8 minutes. Do NOT read _CoolTime from the
@@ -543,6 +624,67 @@ local function fire(reason)
     return ok
 end
 
+-- ------------------------------------------------------------------ dump ----
+
+local function dump_obj(label, obj)
+    if obj == nil then return nil end
+    local td = safe(function() return obj:get_type_definition() end)
+    if td == nil then return nil end
+    local rec = {
+        label = label,
+        type = safe(function() return td:get_full_name() end),
+        methods = {},
+        fields = {},
+    }
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        local n = safe(function() return m:get_name() end)
+        if n ~= nil then rec.methods[#rec.methods + 1] = n end
+    end
+    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+        local n = safe(function() return f:get_name() end)
+        if n ~= nil then
+            local ft = safe(function() return f:get_type() end)
+            local tn = ft ~= nil and safe(function() return ft:get_full_name() end) or nil
+            rec.fields[#rec.fields + 1] = n .. " : " .. tostring(tn)
+        end
+    end
+    table.sort(rec.methods)
+    table.sort(rec.fields)
+    return rec
+end
+
+-- Read-only: records the real type, method and field names so the status-flag
+-- candidates can be corrected from data instead of guessed.
+local function dump_monster()
+    local out = { at = os.time(), status_type = state.status_type, objects = {} }
+    for _, e in ipairs({
+        { "ctx", state.boss_ctx }, { "em", state.boss_em },
+        { "basic", state.boss_basic }, { "chara", state.boss_chara },
+        { "status", state.boss_status },
+    }) do
+        local rec = dump_obj(e[1], e[2])
+        if rec ~= nil then out.objects[#out.objects + 1] = rec end
+    end
+
+    if state.boss_chara ~= nil then
+        local td = safe(function() return state.boss_chara:get_type_definition() end)
+        local kids = {}
+        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            local v = safe(function() return f:get_data(state.boss_chara) end)
+            if n ~= nil and v ~= nil
+                and safe(function() return sdk.is_managed_object(v) end) == true then
+                local kt = safe(function() return v:get_type_definition():get_full_name() end)
+                kids[#kids + 1] = { name = n, type = tostring(kt) }
+            end
+        end
+        out.chara_children = kids
+    end
+
+    pcall(json.dump_file, "monster_flags.json", out)
+    trace("monster dump written")
+end
+
 -- ----------------------------------------------------------------- frame ----
 
 re.on_frame(function()
@@ -569,6 +711,20 @@ re.on_frame(function()
                 state.pending_fire = "first hit"
                 state.pending_kind = "event"
             end
+        end
+
+        -- conditional: trapped / stunned / paralyzed, rising edge only
+        if state.pending_fire == nil then
+            local what = cond_trigger()
+            if what ~= nil then
+                state.pending_fire = what
+                state.pending_kind = "event"
+            end
+        end
+
+        if state.dump_requested then
+            state.dump_requested = false
+            dump_monster()
         end
 
         -- keep-alive: buff down, gated by the global cooldown
@@ -672,6 +828,29 @@ local function draw_body()
     changed, state.cfg.fire_on_first_hit =
         imgui.checkbox("Fire on the first hit to the monster", state.cfg.fire_on_first_hit)
     if changed then save_config() end
+
+    changed, state.cfg.cond_trapped =
+        imgui.checkbox("Fire when the monster is trapped", state.cfg.cond_trapped)
+    if changed then save_config() end
+    changed, state.cfg.cond_stunned =
+        imgui.checkbox("Fire when the monster is stunned", state.cfg.cond_stunned)
+    if changed then save_config() end
+    changed, state.cfg.cond_paralyzed =
+        imgui.checkbox("Fire when the monster is paralyzed", state.cfg.cond_paralyzed)
+    if changed then save_config() end
+
+    local function tri(v)
+        if v == true then return "yes" end
+        if v == false then return "no" end
+        return "?"
+    end
+    imgui.text("  flags: trap=" .. tri(state.cond.trapped)
+        .. " stun=" .. tri(state.cond.stunned)
+        .. " para=" .. tri(state.cond.paralyzed))
+    imgui.text("  status: " .. tostring(state.status_type or "not found"))
+    if imgui.button("Dump monster structure") then
+        state.dump_requested = true
+    end
 
     changed, state.cfg.auto_when_down =
         imgui.checkbox("Fire when the buff is down", state.cfg.auto_when_down)
