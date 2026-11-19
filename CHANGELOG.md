@@ -1,5 +1,32 @@
 # Changelog
 
+## Otomo Horn 0.15.0 — 2026-11-18
+
+The real API, from a dump taken during a pitfall trap:
+
+```
+app.EnemyDef.CONDITION:
+  PARALYSE=5  PARALYSE_EM=6  STUN=15  STUN_EM=16  CAPTURE=17
+  FIELD_PITFALL=31  TRAP_FALL=39  TRAP_PARALYSE=40  TRAP_IVY=41 ...
+
+app.cEmModuleConditions: isActive(CONDITION), isActualActive, getTrapCondition
+```
+
+So the flags are **condition ids**, not named properties. Now:
+
+- paralyzed -> `isActive(5)` or `isActive(6)`
+- stunned   -> `isActive(15)` or `isActive(16)`
+- trapped   -> `isActive(31/39/40/41/42/43)`
+
+The name-based guesses remain as a fallback. `isActive` returning a boolean is
+the source of truth; `nil` means the method was not found (as opposed to "not
+active"), and the two cases are kept distinct.
+
+Also confirmed from the trap dump: the trap is **not** an AI state
+(`ai_state=2` COMBAT, `is_capture=false`), which is why the AI-state approach
+would not have worked.
+
+
 ## Otomo Horn 0.14.0 — 2026-11-18
 
 From the module dump: `cEmModuleConditions` names Angry, Blast, Block, Capture,

@@ -30,8 +30,9 @@ Automation
   Attack-Up buff expires, keeping it up permanently.
 * **Fire on the first hit to the monster** - fires once as soon as the target
   monster first takes damage.
-* **Fire when the monster is trapped / stunned / paralyzed** - each fires once
-  per event. The live state is shown as `flags: trap=.. stun=.. para=..`; if a
+* **Fire when the monster is trapped / stunned / paralyzed** - reads the
+  monster's condition ids (`PARALYSE=5`, `STUN=15`, `FIELD_PITFALL=31`,
+  `TRAP_*=39..43`) and fires once per event. The live state is shown as `flags: trap=.. stun=.. para=..`; if a
   flag reads `?` the accessor is not found and *Dump monster structure* records
   what the game actually exposes. Read from `app.EnemyManager` health data; the
   panel shows `monster: full HP / damaged` plus HP so you can confirm it sees
