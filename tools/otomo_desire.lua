@@ -1,50 +1,56 @@
 --[[
   otomo_desire.lua - force the desire gate. NOT part of Otomo Tools.
 
-  What the measurements established:
+  Established:
 
     checkEnable()             true 100.0%
     useOtomoToolRequirement() true 100.0%
     isDesireActivate()        true   2.2%   <- the only gate that closes
 
-  And what v0.1.0 - v0.3.0 got wrong:
+  The override works: 9052 forced calls, and the method now returns true
+  wherever it is read, including direct calls. One hunt with it armed at a 30 s
+  cooldown produced 1 use in 213 s, which is consistent with the ~136 s buff
+  blocking a replay - not with the override failing.
 
-    - sdk.hook() returns nil here even when it installs. Never trust the return.
-    - the hook fires ~100x per second, so the method is hot: it *is* the gate.
-    - getOtomoToolManagedClass(HORN_ATKUP) returns a DIFFERENT object than the
-      one whose isDesireActivate() the AI updates:
+  So the open question is no longer "can we force it" but "can we TIME it".
+  That is what the speedrun case actually needs, and it is also a much stronger
+  proof than a frequency count.
 
-          hook `this`:  userdata: 0000000CB046EA40   <- the real runtime object
-          manager:      userdata: 0000000D80C257B0   <- not this one
+  v0.5.0 adds a pulse: force desire for 6 seconds on demand.
 
-      Every earlier attempt filtered on the manager's address, so nothing ever
-      matched. distinct_this was 1, i.e. exactly one object calls the method.
+      [Trigger now (6 s)]  ->  desire forced true for 360 frames
 
-  v0.4.0 therefore drops the manager lookup and forces on every call of
-  isDesireActivate() on app.cOtomoToolManaged_Horn_AtkUp. The hook is scoped to
-  that type, so "every call" is the attack horn and nothing else.
+  Press it when the horn is off cooldown (and the buff is down) and the Palico
+  should fire within a few seconds. Every pulse is timestamped into
+  otomo_desire.json, so it can be compared with the counter's last_use.
 
-  This still does not call useOtomoTool(): the game's own update() performs the
-  use, so the animation and the buff take the normal path.
+  Nothing calls useOtomoTool(): the game's own update() performs the use.
 
-  Off by default. Output: reframework/data/otomo_desire.json
+  Output: reframework/data/otomo_desire.json
 ]]
 
-local VERSION = "0.4.0"
+local VERSION = "0.5.0"
 local TAG = "[OtomoDesire] "
 local FILE = "otomo_desire.json"
 local TOOL_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
 local METHOD = "isDesireActivate"
+local PULSE_FRAMES = 360     -- 6 s at 60 fps
 
 local st = {
     armed = false,
+    pulse_until = 0,
+    frames = 0,
+    pulses = {},
+    check_at = nil,
+    check_rec = nil,
+
     hook_state = "not tried",
     calls = 0,
     hits = 0,
     first_this = nil,
-    seen = {},
     seen_count = 0,
-    frames_armed = 0,
+    seen = {},
+    pulses_fired = 0,
 }
 
 local function safe(fn, ...)
@@ -54,9 +60,6 @@ local function safe(fn, ...)
 end
 
 local function flush()
-    local seen_list = {}
-    for addr, _ in pairs(st.seen) do seen_list[#seen_list + 1] = addr end
-    table.sort(seen_list)
     pcall(json.dump_file, FILE, {
         version = VERSION,
         at = os.time(),
@@ -67,9 +70,14 @@ local function flush()
         hits = st.hits,
         first_this = st.first_this,
         distinct_this = st.seen_count,
-        seen_this = seen_list,
-        frames_armed = st.frames_armed,
+        pulses_fired = st.pulses_fired,
+        pulses = st.pulses,
     })
+end
+
+local function forced_now()
+    if st.armed then return true end
+    return st.frames < st.pulse_until
 end
 
 local function ensure_hook()
@@ -83,8 +91,7 @@ local function ensure_hook()
         return sdk.hook(m,
             function(args)
                 st.calls = st.calls + 1
-                local this = args ~= nil and args[2] or nil
-                local addr = this ~= nil and tostring(this) or nil
+                local addr = args ~= nil and args[2] ~= nil and tostring(args[2]) or nil
                 if addr ~= nil then
                     if st.first_this == nil then
                         st.first_this = addr
@@ -96,12 +103,10 @@ local function ensure_hook()
                         log.info(TAG .. " distinct this " .. addr)
                     end
                 end
-                if st.armed then
-                    st.hits = st.hits + 1
-                end
+                if forced_now() then st.hits = st.hits + 1 end
             end,
             function(retval)
-                if st.armed ~= true then return retval end
+                if not forced_now() then return retval end
                 return sdk.to_ptr(true)
             end)
     end)
@@ -111,12 +116,59 @@ local function ensure_hook()
     flush()
 end
 
+local function pulse()
+    st.pulse_until = st.frames + PULSE_FRAMES
+    st.pulses_fired = st.pulses_fired + 1
+
+    -- read the counter so the outcome is attributed automatically
+    local uses_before = nil
+    local ok, counter = pcall(json.load_file, "otomo_counter.json")
+    if ok and type(counter) == "table" then uses_before = counter.uses end
+
+    local rec = {
+        at = os.time(),
+        clock = os.date("%H:%M:%S"),
+        index = st.pulses_fired,
+        uses_before = uses_before,
+        calls_at_pulse = st.calls,
+        hits_at_pulse = st.hits,
+        followed = nil,
+    }
+    st.pulses[#st.pulses + 1] = rec
+    st.check_rec = rec
+    st.check_at = st.frames + PULSE_FRAMES + 300   -- 5 s after the pulse ends
+
+    log.info(TAG .. " pulse #" .. st.pulses_fired .. " for " .. PULSE_FRAMES
+        .. " frames, uses_before=" .. tostring(uses_before))
+    flush()
+end
+
+local function check_pulse()
+    local rec = st.check_rec
+    st.check_rec = nil
+    st.check_at = nil
+    if rec == nil then return end
+    local ok, counter = pcall(json.load_file, "otomo_counter.json")
+    if not ok or type(counter) ~= "table" then
+        rec.followed = "unknown (counter unreadable)"
+        return
+    end
+    rec.uses_after = counter.uses
+    if type(rec.uses_before) == "number" and type(counter.uses) == "number" then
+        rec.followed = counter.uses > rec.uses_before
+    end
+    log.info(TAG .. " pulse #" .. tostring(rec.index) .. " followed=" .. tostring(rec.followed))
+    flush()
+end
+
 re.on_frame(function()
     local ok, err = pcall(function()
         ensure_hook()
-        if not st.armed then return end
-        st.frames_armed = st.frames_armed + 1
-        if st.frames_armed % 120 == 0 then flush() end
+        st.frames = st.frames + 1
+        if st.check_at ~= nil and st.frames >= st.check_at then
+            check_pulse()
+        end
+        if st.frames % 120 == 0 then flush() end
     end)
     if not ok then log.info(TAG .. " frame error: " .. tostring(err)) end
 end)
@@ -124,21 +176,33 @@ end)
 local function draw_body()
     local changed
     imgui.text("Forces isDesireActivate() on the Attack-Up horn.")
-    imgui.text("Scoped to the horn's type: no other tool is affected.")
+    imgui.text("Scoped to the horn type; no other tool is affected.")
     imgui.separator()
     imgui.text("hook:    " .. tostring(st.hook_state))
-    imgui.text(string.format("calls:   %d      distinct objects: %d", st.calls, st.seen_count))
-    imgui.text(string.format("forced:  %d", st.hits))
-    if st.first_this ~= nil then
-        imgui.text("object:  " .. tostring(st.first_this))
+    imgui.text(string.format("calls:   %d      forced: %d", st.calls, st.hits))
+    local left = st.pulse_until - st.frames
+    if left > 0 then
+        imgui.text(string.format("PULSE ACTIVE  %d frames left", left))
+    end
+    imgui.text(string.format("pulses:  %d", st.pulses_fired))
+    local first = math.max(1, #st.pulses - 2)
+    for i = first, #st.pulses do
+        local p = st.pulses[i]
+        imgui.text(string.format("  #%d %s  uses %s -> %s  %s",
+            p.index, tostring(p.clock), tostring(p.uses_before),
+            tostring(p.uses_after), tostring(p.followed)))
     end
     imgui.separator()
-    changed, st.armed = imgui.checkbox("Force desire (horn always wants to fire)", st.armed)
+    if imgui.button("Trigger now (6 s)") then
+        pulse()
+    end
+    imgui.text("press when the horn is off cooldown and the buff is down")
+    imgui.separator()
+    changed, st.armed = imgui.checkbox("Or hold desire on permanently", st.armed)
     if changed then
         log.info(TAG .. " armed -> " .. tostring(st.armed))
         flush()
     end
-    imgui.text("watch the horn counter for actual uses")
     imgui.text("file: " .. FILE)
 end
 
