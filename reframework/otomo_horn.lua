@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.8.0"
+local VERSION = "0.9.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -43,7 +43,7 @@ local state = {
         hotkey = "F9",
         min_interval_sec = 0.5,
         auto_when_down = false,
-        global_cooldown_enabled = true,
+        use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
     },
@@ -62,6 +62,8 @@ local state = {
     buff = nil,
     buff_checked = 0,
 
+    base_cooldown = nil,
+    base_checked = 0,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
     monster_max = nil,
@@ -115,8 +117,8 @@ local function load_config()
         c.min_interval_sec = math.max(0, math.min(10, raw.min_interval_sec))
     end
     if raw.auto_when_down ~= nil then c.auto_when_down = raw.auto_when_down == true end
-    if raw.global_cooldown_enabled ~= nil then
-        c.global_cooldown_enabled = raw.global_cooldown_enabled == true
+    if raw.use_base_cooldown ~= nil then
+        c.use_base_cooldown = raw.use_base_cooldown == true
     end
     if type(raw.global_cooldown_sec) == "number" then
         c.global_cooldown_sec = math.max(0, math.min(3600, raw.global_cooldown_sec))
@@ -281,6 +283,25 @@ local function monster_scan()
         state.chain_logged = true
         trace("monster chain ok: " .. state.monster_note)
     end
+end
+
+-- The Attack-Up horn's own cooldown, straight from the tool params. This is the
+-- "base game cooldown": 600 s in vanilla, or whatever Otomo Tools has written.
+local function read_base_cooldown()
+    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
+    if om == nil then return nil end
+    local catalog = getter(om, "get_Catalog")
+    if catalog == nil then catalog = field_value(om, "_Catalog") end
+    local gp = catalog and getter(catalog, "get_GlobalParam")
+    if gp == nil and catalog ~= nil then gp = field_value(catalog, "_GlobalParam") end
+    local root = gp and getter(gp, "get_OtomoToolParam")
+    if root == nil and gp ~= nil then root = field_value(gp, "_OtomoToolParam") end
+    if root == nil then return nil end
+    local horn = field_value(root, "_Horn_AtkUp")
+    if horn == nil then return nil end
+    local v = field_value(horn, "_CoolTime")
+    if type(v) == "number" and v >= 0 then return v end
+    return nil
 end
 
 -- ------------------------------------------------------------------ buff ----
@@ -467,10 +488,16 @@ local function ready_reason()
     return nil
 end
 
+local function cooldown_seconds()
+    if state.cfg.use_base_cooldown then
+        return state.base_cooldown or 600
+    end
+    return state.cfg.global_cooldown_sec or 0
+end
+
 local function cooldown_left()
-    if state.cfg.global_cooldown_enabled ~= true then return 0 end
     if state.last_fire_time == nil then return 0 end
-    local left = (state.cfg.global_cooldown_sec or 0) - (os.time() - state.last_fire_time)
+    local left = cooldown_seconds() - (os.time() - state.last_fire_time)
     if left < 0 then return 0 end
     return left
 end
@@ -511,6 +538,7 @@ re.on_frame(function()
 
         if state.frames % 15 == 0 then read_buff() end
         if state.frames % 30 == 0 then monster_scan() end
+        if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 
         local bind_blocked = state.scan ~= nil
             or (state.bind_block_until ~= nil and state.frames <= state.bind_block_until)
@@ -631,22 +659,23 @@ local function draw_body()
         imgui.checkbox("Fire when the buff is down", state.cfg.auto_when_down)
     if changed then save_config() end
 
-    changed, state.cfg.global_cooldown_enabled =
-        imgui.checkbox("Use a global cooldown", state.cfg.global_cooldown_enabled)
+    changed, state.cfg.use_base_cooldown =
+        imgui.checkbox("Use the base game cooldown", state.cfg.use_base_cooldown)
     if changed then save_config() end
-    if state.cfg.global_cooldown_enabled then
+    if state.cfg.use_base_cooldown then
+        imgui.text(string.format("  game cooldown: %s s",
+            state.base_cooldown ~= nil and tostring(state.base_cooldown) or "unknown (600)"))
+    else
         local cd = state.cfg.global_cooldown_sec or 0
         changed, cd = imgui.drag_int("  cooldown (s)", cd, 10, 0, 1800)
         if changed then
             state.cfg.global_cooldown_sec = cd
             save_config()
         end
-        local left = cooldown_left()
-        imgui.text(left > 0 and string.format("  next automatic fire in %d s", left)
-            or "  automatic fire ready")
-    else
-        imgui.text("  cooldown off - fires whenever the trigger says so")
     end
+    local left = cooldown_left()
+    imgui.text(left > 0 and string.format("  next automatic fire in %d s", left)
+        or "  automatic fire ready")
 
     imgui.separator()
     imgui.text("config: " .. CONFIG_FILE)
@@ -656,6 +685,7 @@ end
 -- scanned numerically, but only up to 600: ImGui's named-key table ends around
 -- 616 and reading past it returns garbage (a scan up to 700 "found" 691, which
 -- is not a key at all). A press must also be stable for two frames.
+local SCAN_MIN = 512          -- below this are mouse buttons and legacy keys
 local SCAN_MAX = 600
 
 local function try_scan()
@@ -668,7 +698,7 @@ local function try_scan()
     end
 
     local downs = {}
-    for v = 0, SCAN_MAX do
+    for v = SCAN_MIN, SCAN_MAX do
         local ok, down = pcall(imgui.is_key_down, v)
         if ok and down == true then downs[#downs + 1] = v end
     end
@@ -752,6 +782,8 @@ end)
 load_config()
 build_key_list()
 resolve_key()
+state.base_cooldown = read_base_cooldown()
+trace("base cooldown: " .. tostring(state.base_cooldown))
 
 do
     local enum = imgui.ImGuiKey
