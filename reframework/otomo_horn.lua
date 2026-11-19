@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.16.0"
+local VERSION = "0.16.1"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -80,6 +80,8 @@ local state = {
     cond_logged = false,
     was_playing = nil,
     quest_start_pending = false,
+    last_req_reason = nil,
+    last_req_frame = nil,
     dump_requested = false,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
@@ -908,7 +910,8 @@ re.on_frame(function()
         if state.cfg.fire_on_first_hit and state.pending_fire == nil then
             if state.monster_state == false then
                 state.first_hit_done = false     -- full hp again: new hunt/monster
-            elseif state.monster_state == true and state.first_hit_done == false then
+            elseif state.monster_state == true and state.first_hit_done == false
+                and state.self ~= nil then
                 state.pending_fire = "first hit"
                 state.pending_kind = "event"
             end
@@ -951,7 +954,12 @@ re.on_frame(function()
             local reason = state.pending_fire
             state.pending_fire = nil
             state.pending_kind = nil
-            trace("request: " .. tostring(reason))
+            if state.last_req_reason ~= reason
+                or (state.frames - (state.last_req_frame or 0)) > 60 then
+                state.last_req_reason = reason
+                state.last_req_frame = state.frames
+                trace("request: " .. tostring(reason))
+            end
 
             local exempt = (reason == "first hit" or reason == "quest start")
             local left = cooldown_left()
@@ -1071,7 +1079,7 @@ local function draw_body()
     imgui.text("  flags: trap=" .. tri(state.cond.trapped)
         .. " stun=" .. tri(state.cond.stunned)
         .. " para=" .. tri(state.cond.paralyzed))
-    imgui.text("  status: " .. tostring(state.status_type or "not found"))
+    imgui.text("  condition module: " .. tostring(state.status_type or "not found"))
     if imgui.button("Dump monster structure") then
         state.dump_requested = true
     end
