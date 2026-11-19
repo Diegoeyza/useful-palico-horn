@@ -57,5 +57,6 @@ Notes
   Tools, which is a data-only cooldown/counter mod; the two do not conflict.
 * The Palico must have acted at least once in the quest before the hotkey can
   work - the mod needs to capture its action object.
-* If REFramework reports an unknown key name, edit "hotkey" to one of the
-  ImGui key names (F1..F12, etc.).
+* **Every function key already does something in game**, so bind your own:
+  in the panel click *Bind hotkey* and press the key you want (Escape cancels).
+  The chosen key name is written to "hotkey" in the config.

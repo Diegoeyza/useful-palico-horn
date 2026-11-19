@@ -1,5 +1,16 @@
 # Changelog
 
+## Otomo Horn 0.5.0 — 2026-11-18
+
+- **Bind the hotkey in the panel.** Every function key already does something
+  in game, so guessing a name was the wrong approach: click *Bind hotkey*, press
+  the key you want, and it is stored by its enum name in the config (Escape
+  cancels). The key list is enumerated from `imgui.ImGuiKey` at load.
+- The key that is bound cannot fire the mod on the same press (30-frame block),
+  and Escape never becomes a hotkey.
+- Default remains F9, but binding makes the default irrelevant.
+
+
 ## Otomo Horn 0.4.0 — 2026-11-18
 
 **Critical fix: nothing fired at all.** `REMETHODDefinition:get_full_name()`

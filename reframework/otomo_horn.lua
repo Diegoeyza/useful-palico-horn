@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.4.0"
+local VERSION = "0.5.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -79,6 +79,9 @@ local state = {
     key = nil,
     key_index = nil,
     key_note = "-",
+    binding = false,
+    key_list = nil,
+    bind_block_until = nil,
 
     trace = {},
 }
@@ -401,6 +404,22 @@ end
 
 -- ----------------------------------------------------------------- input ----
 
+local function build_key_list()
+    local enum = imgui.ImGuiKey
+    if type(enum) ~= "table" then
+        state.key_list = nil
+        return
+    end
+    local list = {}
+    for k, v in pairs(enum) do
+        if type(k) == "string" and type(v) == "number" then
+            list[#list + 1] = { name = k, value = v }
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    state.key_list = list
+end
+
 local function resolve_key()
     local spec = tostring(state.cfg.hotkey)
     local enum = imgui.ImGuiKey
@@ -492,7 +511,9 @@ re.on_frame(function()
         if state.frames % 15 == 0 then read_buff() end
         if state.frames % 30 == 0 then monster_scan() end
 
-        if state.pending_fire == nil and key_pressed() then
+        local bind_blocked = state.bind_block_until ~= nil
+            and state.frames <= state.bind_block_until
+        if state.pending_fire == nil and not bind_blocked and key_pressed() then
             state.pending_fire = "hotkey"
             state.pending_kind = "event"
         end
@@ -564,6 +585,13 @@ local function draw_body()
 
     imgui.text("hook:    " .. tostring(state.hook_note))
     imgui.text("hotkey:  " .. tostring(state.key_note))
+    if state.binding then
+        imgui.text("  press a key to bind it (Escape cancels)")
+    else
+        if imgui.button("Bind hotkey") then
+            state.binding = true
+        end
+    end
     imgui.text("buff:    " .. buff_text())
     imgui.text("monster: " .. monster_text() .. "   " .. tostring(state.monster_note))
     if state.captured_at ~= nil then
@@ -614,9 +642,46 @@ local function draw_body()
     imgui.text("config: " .. CONFIG_FILE)
 end
 
+-- While binding, any key press becomes the hotkey. This sidesteps both the
+-- enum-naming problem and the fact that every function key is already bound
+-- to something in the game.
+local function try_bind()
+    if not state.binding then return false end
+    if state.key_list == nil then return false end
+    for _, k in ipairs(state.key_list) do
+        local hit = pressed(k.value)
+        if not hit and imgui.get_key_index ~= nil then
+            local idx = safe(imgui.get_key_index, k.value)
+            hit = pressed(idx)
+        end
+        if hit then
+            if k.name == "Escape" then
+                state.binding = false
+                trace("bind cancelled")
+                return true
+            end
+            state.cfg.hotkey = k.name
+            state.binding = false
+            state.bind_block_until = (state.frames or 0) + 30
+            resolve_key()
+            save_config()
+            trace("bound key " .. k.name)
+            return true
+        end
+    end
+    return false
+end
+
 re.on_draw_ui(function()
-    local okk, pressed_now = pcall(key_pressed)
-    if okk and pressed_now and state.pending_fire == nil then
+    local consumed = try_bind()
+    local okk, pressed_now = false, false
+    if not consumed then
+        okk, pressed_now = pcall(key_pressed)
+    end
+    local blocked = state.bind_block_until ~= nil
+        and state.frames <= state.bind_block_until
+    if okk and pressed_now and not blocked
+        and not state.binding and state.pending_fire == nil then
         state.pending_fire = "hotkey"
         state.pending_kind = "event"
     end
@@ -628,6 +693,7 @@ re.on_draw_ui(function()
 end)
 
 load_config()
+build_key_list()
 resolve_key()
 
 do
