@@ -23,29 +23,39 @@ version_of() {
     printf '%s' "$v"
 }
 
-# package <lua file> <flat zip base> <nexus zip base> <nexus readme>
+# package <lua file> <flat zip base> <nexus zip base> <nexus readme> <title> <description>
 package() {
-    local lua="$1" flat="$2" nexus="$3" readme="$4"
+    local lua="$1" flat="$2" nexus="$3" readme="$4" title="$5" desc="$6"
     [ -f "$lua" ] || { echo "error: $lua not found" >&2; exit 1; }
-    local v name
+    local v file
     v="$(version_of "$lua")"
-    name="$(basename "$lua")"
+    file="$(basename "$lua")"
 
     mkdir -p "$DIST/flat"
-    cp "$lua" "$DIST/flat/$name"
+    cp "$lua" "$DIST/flat/$file"
     cp reframework/INSTALL.txt "$DIST/flat/INSTALL.txt"
-    ( cd "$DIST/flat" && zip -q "../${flat}-${v}.zip" "$name" INSTALL.txt )
+    ( cd "$DIST/flat" && zip -q "../${flat}-${v}.zip" "$file" INSTALL.txt )
     rm -rf "$DIST/flat"
 
     mkdir -p "$DIST/nexus/reframework/autorun"
-    cp "$lua" "$DIST/nexus/reframework/autorun/$name"
+    cp "$lua" "$DIST/nexus/reframework/autorun/$file"
     cp "$readme" "$DIST/nexus/README.txt"
+
+    # Fluffy Manager / Vortex read modinfo.ini from the archive root
+    printf 'name=%s\nversion=%s\ndescription=%s\n' \
+        "$title" "$v" "$desc" > "$DIST/nexus/modinfo.ini"
+
     ( cd "$DIST/nexus" && zip -q -r "../${nexus}-${v}.zip" . )
     rm -rf "$DIST/nexus"
 }
 
-package "reframework/otomo_tools.lua" "otomo-tools" "OtomoTools" "packaging/nexus/README.txt"
-package "reframework/otomo_horn.lua" "otomo-horn" "OtomoHorn" "packaging/nexus/README-horn.txt"
+package "reframework/otomo_tools.lua" "otomo-tools" "OtomoTools" \
+    "packaging/nexus/README.txt" "Otomo Tools" \
+    "Palico tool cooldown tuning and a read-only Attack-Up horn counter."
+
+package "reframework/otomo_horn.lua" "otomo-horn" "OtomoHorn" \
+    "packaging/nexus/README-horn.txt" "Otomo Horn" \
+    "Fires the Palico's Attack-Up horn on command: first hit, quest start, trap, stun, paralysis or when the buff runs out."
 
 echo "Built into $DIST/:"
 ls -1 "$DIST"
