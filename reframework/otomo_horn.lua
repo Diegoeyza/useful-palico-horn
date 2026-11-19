@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -78,6 +78,7 @@ local state = {
     cond = { trapped = nil, stunned = nil, paralyzed = nil },
     cond_prev = {},
     cond_logged = false,
+    cond_sig = nil,
     was_playing = nil,
     quest_start_pending = false,
     last_req_reason = nil,
@@ -231,22 +232,27 @@ local COND_IDS = {
 
 -- cEmModuleConditions:isActive(CONDITION) -> Boolean. nil means the method was
 -- not found, which is different from "not active".
-local function condition_active(cond, value)
+local function condition_method_bool(cond, methodName, value)
     if cond == nil then return nil end
     local td = safe(function() return cond:get_type_definition() end)
     if td == nil then return nil end
-    local found = false
     for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        if safe(function() return m:get_name() end) == "isActive"
+        if safe(function() return m:get_name() end) == methodName
             and safe(function() return m:get_num_params() end) == 1 then
-            found = true
             local ok, v = pcall(function() return m:call(cond, value) end)
-            if ok and type(v) == "boolean" then
-                if v then return true end
-            end
+            if ok and type(v) == "boolean" then return v end
+            return nil
         end
     end
-    if found then return false end
+    return nil
+end
+
+local function condition_active(cond, value)
+    local a = condition_method_bool(cond, "isActive", value)
+    if a == true then return true end
+    local b = condition_method_bool(cond, "isActualActive", value)
+    if b == true then return true end
+    if a ~= nil or b ~= nil then return false end
     return nil
 end
 
@@ -334,6 +340,56 @@ local function array_len(arr)
     return 0
 end
 
+-- The condition array is the last unknown: is a condition a boolean, a timer,
+-- an object? Record the elements' types and their numeric/boolean fields so the
+-- encoding can be read instead of guessed.
+local function dump_conditions(cond, reason)
+    if cond == nil then return end
+    local td = safe(function() return cond:get_type_definition() end)
+    local out = {
+        at = os.time(),
+        reason = reason,
+        module = td and safe(function() return td:get_full_name() end) or nil,
+        elements = {},
+    }
+
+    local arr = field_value(cond, "_Conditions") or field_value(cond, "_ValidContions_BadCond")
+    local n = arr and array_len(arr) or 0
+    for i = 0, math.min(n - 1, 60) do
+        local el = safe(function() return arr[i] end)
+        if el ~= nil then
+            local etd = safe(function() return el:get_type_definition() end)
+            local rec = {
+                index = i,
+                type = etd and safe(function() return etd:get_full_name() end) or nil,
+                values = {},
+            }
+            for _, f in ipairs(safe(function() return etd:get_fields() end) or {}) do
+                local fn = safe(function() return f:get_name() end)
+                local fv = safe(function() return f:get_data(el) end)
+                if fn ~= nil and (type(fv) == "number" or type(fv) == "boolean") then
+                    rec.values[fn] = fv
+                end
+            end
+            out.elements[#out.elements + 1] = rec
+        end
+    end
+
+    pcall(json.dump_file, "otomo_conditions.json", out)
+    trace("conditions dump (" .. tostring(reason) .. ") " .. #out.elements .. " elements")
+end
+
+local function cond_signature(cond)
+    if cond == nil then return "nil" end
+    local parts = {}
+    for _, id in ipairs({ 5, 6, 15, 16, 31, 40 }) do
+        local a = condition_method_bool(cond, "isActive", id)
+        local b = condition_method_bool(cond, "isActualActive", id)
+        parts[#parts + 1] = tostring(id) .. "=" .. tostring(a) .. "/" .. tostring(b)
+    end
+    return table.concat(parts, " ")
+end
+
 local function monster_scan()
     local arr = enemy_array()
     if arr == nil then
@@ -363,7 +419,7 @@ local function monster_scan()
                 local boss = basic and access(basic, "IsBoss")
 
                 local chara = ctx and access(ctx, "Chara")
-                if boss == true and state.boss_chara == nil then
+                if boss == true then
                     state.boss_ctx, state.boss_em = ctx, em
                     state.boss_chara, state.boss_basic = chara, basic
                 end
@@ -452,6 +508,19 @@ local function monster_scan()
             local by_trap_cond = trap_condition(conditions)
             if by_trap_cond ~= nil then state.cond.trapped = by_trap_cond
             else state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped) end
+        end
+
+        local sig = cond_signature(conditions)
+        if state.cond_sig == nil then
+            state.cond_sig = sig
+            if not state.cond_logged then
+                state.cond_logged = true
+                dump_conditions(conditions, "baseline")
+            end
+        elseif state.cond_sig ~= sig then
+            state.cond_sig = sig
+            trace("cond change: " .. sig)
+            dump_conditions(conditions, "change")
         end
 
         if not state.cond_logged then

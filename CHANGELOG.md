@@ -1,5 +1,21 @@
 # Changelog
 
+## Otomo Horn 1.0.1 — 2026-11-18
+
+Debugging why paralysis and stun never register while `FIELD_PITFALL` does.
+
+- **Stale-object bug**: the boss objects (`ctx`, `em`, `chara`, `basic`) were
+  captured only on the first sighting and never refreshed, so after a quest or
+  monster change every condition read was against a dead object. They are now
+  updated on every scan.
+- `isActive` may only cover "bad conditions" (traps); `isActualActive` is now
+  consulted as well, and either returning true counts.
+- **Automatic condition dump**: the `_Conditions` array is written to
+  `otomo_conditions.json` at baseline and every time the condition signature
+  changes (element types plus their numeric/boolean fields), so the encoding of
+  paralysis/stun can be read from a single hunt. No UI button, no user action.
+
+
 ## Otomo Horn 1.0.0 — 2026-11-18
 
 Release UI. The panel now contains only what a player needs:
