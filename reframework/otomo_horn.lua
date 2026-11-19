@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.7.0"
+local VERSION = "0.8.0"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -593,7 +593,7 @@ local function draw_body()
     else
         if not (state.key_list ~= nil and #state.key_list > 0) then
             if imgui.button("Find my key (press it after clicking)") then
-                state.scan = { i = 0, max = 700, step = 150 }
+                state.scan = { started = state.frames or 0 }
                 trace("scan started")
             end
         else
@@ -652,35 +652,51 @@ local function draw_body()
     imgui.text("config: " .. CONFIG_FILE)
 end
 
--- imgui.ImGuiKey is empty on this build, so names cannot be bound. is_key_pressed
--- is edge-triggered, which makes a chunked scan miss most presses, so scan the
--- whole numeric range every frame with is_key_down (level-triggered) instead.
+-- imgui.ImGuiKey is empty on this build, so names cannot be bound. Values are
+-- scanned numerically, but only up to 600: ImGui's named-key table ends around
+-- 616 and reading past it returns garbage (a scan up to 700 "found" 691, which
+-- is not a key at all). A press must also be stable for two frames.
+local SCAN_MAX = 600
+
 local function try_scan()
     if state.scan == nil then return false end
+
+    if (state.frames or 0) - state.scan.started > 600 then
+        state.scan = nil
+        trace("scan cancelled (10 s timeout)")
+        return false
+    end
+
     local downs = {}
-    for v = 0, state.scan.max do
+    for v = 0, SCAN_MAX do
         local ok, down = pcall(imgui.is_key_down, v)
         if ok and down == true then downs[#downs + 1] = v end
     end
 
     if #downs == 0 then
-        if (state.frames or 0) % 60 == 0 then
-            trace("scan: no key down (0.." .. tostring(state.scan.max) .. ")")
-        end
+        state.scan.candidate = nil
         return false
     end
 
-    -- Prefer the highest value: modifiers (Ctrl/Shift/Alt) sit lower than the
-    -- letter and function keys, so a combo binds the real key.
+    -- highest value wins: modifiers sit lower than letters and function keys
     local v = downs[#downs]
-    state.cfg.hotkey = tostring(v)
-    state.scan = nil
-    state.bind_block_until = (state.frames or 0) + 30
-    resolve_key()
-    save_config()
-    trace("scan bound raw key " .. tostring(v)
-        .. " (down: " .. table.concat(downs, ",") .. ")")
-    return true
+    if state.scan.candidate == v then
+        state.scan.stable = (state.scan.stable or 0) + 1
+    else
+        state.scan.candidate = v
+        state.scan.stable = 1
+    end
+
+    if state.scan.stable >= 2 then
+        state.cfg.hotkey = tostring(v)
+        state.scan = nil
+        state.bind_block_until = (state.frames or 0) + 30
+        resolve_key()
+        save_config()
+        trace("scan bound raw key " .. tostring(v))
+        return true
+    end
+    return false
 end
 
 -- While binding, any key press becomes the hotkey. This sidesteps both the

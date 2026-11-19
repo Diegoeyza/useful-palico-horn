@@ -1,5 +1,15 @@
 # Changelog
 
+## Otomo Horn 0.8.0 — 2026-11-18
+
+- The key scan bound **691**, which is not a key: ImGui's named-key table ends
+  around 616 and reading past it returns garbage because asserts are compiled
+  out. The scan is now capped at **600** (letters and F1-F12 all live below 584),
+  requires the same value down for **two consecutive frames**, and cancels after
+  10 s. A modifier combo binds the highest value, i.e. the real key.
+- Hotkey in the config reset to `0` so a stale garbage value cannot fire.
+
+
 ## Otomo Horn 0.7.0 — 2026-11-18
 
 - **Key binding could never work as written.** `imgui.ImGuiKey` is an empty
