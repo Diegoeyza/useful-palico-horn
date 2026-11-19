@@ -24,11 +24,11 @@
   Off by default; one fire per press. Output: reframework/data/otomo_action.json
 ]]
 
-local VERSION = "0.1.0"
+local VERSION = "0.2.0"
 local TAG = "[OtomoAction] "
 local FILE = "otomo_action.json"
 local HORN_ACTION = 0x85          -- cUseHorn, from PalicoMod's disassembly
-local MAX_CAPTURE_AGE = 300       -- frames (~5 s)
+local MAX_CAPTURE_AGE = 36000     -- frames (~10 min); the pointer stays valid in-quest
 
 local st = {
     frames = 0,
@@ -173,15 +173,18 @@ local function fire()
         return
     end
     if st.frames - st.capture_frame > MAX_CAPTURE_AGE then
-        st.last_result = "capture is stale (waited too long after the last action)"
+        st.last_result = "no capture in the last 10 minutes"
         return
     end
 
     local self = safe(sdk.to_managed_object, st.self)
     if self == nil then
-        st.last_result = "self is not a managed object"
+        st.last_result = "self is not a managed object (quest changed? act once to recapture)"
         return
     end
+    local self_type = safe(function()
+        return self:get_type_definition():get_full_name()
+    end)
 
     st.fire_count = st.fire_count + 1
     local rec = {
@@ -191,6 +194,8 @@ local function fire()
         action = HORN_ACTION,
         append = st.append,
         captured_id = st.last_captured_id,
+        age_s = st.capture_frame and math.floor((st.frames - st.capture_frame) / 60) or nil,
+        self_type = self_type,
     }
 
     local ok, ret = pcall(function()
