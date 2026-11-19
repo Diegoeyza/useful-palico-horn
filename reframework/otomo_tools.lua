@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -1063,6 +1063,7 @@ local function update_counter()
 
     local lead = best_channel()
     state.buff_now = lead ~= nil and lead.c.last_state or nil
+    state.counter_uses = lead ~= nil and lead.c.uses or nil
 
     if wrote or counter_ticks % 240 == 0 then save_counter() end
 end
@@ -1335,6 +1336,11 @@ local function draw_body()
     changed, state.cfg.enabled = imgui.checkbox("Enabled", state.cfg.enabled)
     if changed then save_config() end
 
+    -- Live state first: it is the one thing you check mid-fight.
+    local buff = state.buff_now
+    imgui.text("buff now: " .. (buff == true and "UP" or buff == false and "down" or "-")
+        .. "   (horn uses: " .. tostring(state.counter_uses or 0) .. ")")
+
     local was_quiet = state.cfg.quiet_others
     changed, state.cfg.quiet_others =
         imgui.checkbox("Quiet the other tools (raises their cooldown)", state.cfg.quiet_others)
@@ -1420,8 +1426,6 @@ local function draw_body()
         end
         imgui.text(string.format("horn uses: %d   uptime: %s%%   last: %s",
             uses, tostring(pct), tostring(best and best.c.last_at or "-")))
-        local buff = state.buff_now
-        imgui.text("buff now: " .. (buff == true and "UP" or buff == false and "down" or "-"))
         imgui.text(string.format("in quests: %d uses over %d s%s",
             best and (best.c.uses_playing or 0) or 0,
             math.floor(observation.quest_sec),

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 — 2026-11-18
+
+- The live buff state now sits at the top of the panel (`buff now: UP / down`,
+  with the use count) instead of below the 14-row tool list, where it was easy
+  to miss.
+
 ## 1.0.2 — 2026-11-18
 
 - Panel shows the live buff state (`buff now: UP / down`) next to the counter.
