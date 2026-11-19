@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.16.1"
+local VERSION = "0.16.2"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -1052,7 +1052,29 @@ local function draw_body()
     end
 
     imgui.separator()
-    imgui.text("Automation")
+    imgui.text("Cooldown")
+    changed, state.cfg.use_base_cooldown =
+        imgui.checkbox("Use the base game cooldown", state.cfg.use_base_cooldown)
+    if changed then save_config() end
+    if state.cfg.use_base_cooldown then
+        imgui.text(string.format("  game cooldown: %d s (8 min)",
+            state.base_cooldown or BASE_GAME_COOLDOWN))
+    else
+        local cd = state.cfg.global_cooldown_sec or 0
+        changed, cd = imgui.drag_int("  cooldown (s)", cd, 10, 0, 1800)
+        if changed then
+            state.cfg.global_cooldown_sec = cd
+            save_config()
+        end
+    end
+    local left = cooldown_left()
+    imgui.text(left > 0 and string.format("  next buff in %d s", left)
+        or "  buff ready")
+    imgui.text("  when on, EVERY trigger below uses this cooldown")
+    imgui.text("  except: first hit and quest start (one-shot events)")
+
+    imgui.separator()
+    imgui.text("Triggers")
     changed, state.cfg.fire_on_first_hit =
         imgui.checkbox("Fire on the first hit to the monster", state.cfg.fire_on_first_hit)
     if changed then save_config() end
@@ -1080,33 +1102,14 @@ local function draw_body()
         .. " stun=" .. tri(state.cond.stunned)
         .. " para=" .. tri(state.cond.paralyzed))
     imgui.text("  condition module: " .. tostring(state.status_type or "not found"))
-    if imgui.button("Dump monster structure") then
-        state.dump_requested = true
-    end
 
     changed, state.cfg.auto_when_down =
         imgui.checkbox("Fire when the buff is down", state.cfg.auto_when_down)
     if changed then save_config() end
 
-    changed, state.cfg.use_base_cooldown =
-        imgui.checkbox("Use the base game cooldown", state.cfg.use_base_cooldown)
-    if changed then save_config() end
-    if state.cfg.use_base_cooldown then
-        imgui.text(string.format("  game cooldown: %d s (8 min)",
-            state.base_cooldown or BASE_GAME_COOLDOWN))
-    else
-        local cd = state.cfg.global_cooldown_sec or 0
-        changed, cd = imgui.drag_int("  cooldown (s)", cd, 10, 0, 1800)
-        if changed then
-            state.cfg.global_cooldown_sec = cd
-            save_config()
-        end
+    if imgui.button("Dump monster structure") then
+        state.dump_requested = true
     end
-    local left = cooldown_left()
-    imgui.text(left > 0 and string.format("  next buff in %d s", left)
-        or "  buff ready")
-    imgui.text("  applies to: hotkey, button, buff down, trap/stun/paralysis")
-    imgui.text("  never applies to: first hit, quest start")
 
     imgui.separator()
     imgui.text("config: " .. CONFIG_FILE)

@@ -1,5 +1,13 @@
 # Changelog
 
+## Otomo Horn 0.16.2 — 2026-11-18
+
+- Panel order now states the rule before the options: **Cooldown** sits above
+  **Triggers**, with the line "when on, EVERY trigger below uses this cooldown"
+  and its two exceptions (first hit, quest start) directly underneath.
+- The buff-down keep-alive and Dump button moved under the trigger list.
+
+
 ## Otomo Horn 0.16.0 — 2026-11-18
 
 - **Fire at quest start** option: arms on a false->true transition of
