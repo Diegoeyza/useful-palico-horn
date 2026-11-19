@@ -35,7 +35,7 @@ local json = json
 local log = log
 local imgui = imgui
 
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local TAG = "[OtomoTools]"
 
 local ALREADY_LOADED = _G.OTOMO_TOOLS_LOADED == true
@@ -1302,6 +1302,29 @@ local function bump(config, name, delta)
     config.preset = "custom"
 end
 
+-- 0 means "do not touch". Turning it off restores the shipping value at once.
+local function bump_global(delta, reset)
+    local cfg = state.cfg
+    if not cfg then return end
+    if reset then
+        cfg.global_cooltime_sec = 0
+        if state.param_root ~= nil and type(state.original_global) == "number" then
+            write_number(state.param_root, "_GlobalCoolTime", state.original_global)
+        end
+        save_config()
+        trace("global cooltime -> leave as-is")
+        return
+    end
+    local cur = cfg.global_cooltime_sec or 0
+    if cur <= 0 then cur = state.original_global or 90 end
+    local n = math.floor(cur + delta)
+    if n < 10 then n = 0 end
+    if n > 3600 then n = 3600 end
+    cfg.global_cooltime_sec = n
+    save_config()
+    trace("global cooltime target -> " .. tostring(n))
+end
+
 local function draw_body()
     if not state.cfg then
         imgui.text("config not loaded")
@@ -1351,7 +1374,15 @@ local function draw_body()
         imgui.text("tool params: resolved")
         local g = field_value(state.param_root, "_GlobalCoolTime")
         imgui.text("global cooldown: " .. tostring(g) .. " s"
-            .. (state.original_global and (" (was " .. tostring(state.original_global) .. ")") or ""))
+            .. (state.original_global and (" (was " .. tostring(state.original_global) .. ")") or "")
+            .. "   target: " .. tostring(state.cfg.global_cooltime_sec or 0)
+            .. ((state.cfg.global_cooltime_sec or 0) == 0 and " (leave)" or ""))
+        if imgui.button("-30##gcd") then bump_global(-30) end
+        imgui.same_line()
+        if imgui.button("+30##gcd") then bump_global(30) end
+        imgui.same_line()
+        if imgui.button("leave as-is##gcd") then bump_global(0, true) end
+        imgui.text("  the horns ignore this (they use their own cooldown)")
     end
 
     imgui.separator()

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 — 2026-11-18
+
+- Added panel controls for `_GlobalCoolTime` (`-30` / `+30` / **leave as-is**).
+  It was already supported in the config (`global_cooltime_sec`, default 0) but
+  had no UI. "Leave as-is" also restores the shipping value immediately.
+- Worth knowing: the horns set `_IsUseOnlyUniqueCoolTime = true`, so they ignore
+  the global cooldown entirely — this knob only affects the other tools (traps,
+  slinger, bombs, heals).
+
 ## 1.0.0 — 2026-11-18
 
 Final. What ships is the part that measurably works, with **no hooks at all**.
