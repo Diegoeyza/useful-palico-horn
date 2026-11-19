@@ -1,44 +1,55 @@
 --[[
   otomo_desire.lua - force the desire gate. NOT part of Otomo Tools.
 
-  Measured first (tools/otomo_watch.lua, 190 s in a quest):
+  Measured with tools/otomo_watch.lua over a whole hunt:
 
       checkEnable()             true 100.0%
       useOtomoToolRequirement() true 100.0%
-      isDesireActivate()        true   2.2%   (one 7 s window)
+      isDesireActivate()        true   2.2%
 
-  So the horn has exactly one gate that ever closes: desire. Everything else -
-  cooldown, range, state - was satisfied the whole fight.
+  Desire is the only gate that ever closes. v0.1.0 tried to override it with
+  sdk.hook() and got zero calls - not even from the watcher's own direct calls,
+  so the hook was never entered at all. isDesireActivate() is declared on
+  app.cOtomoToolManaged_Horn_AtkUp, i.e. it is an override, i.e. it is virtual,
+  and sdk.hook() does not reliably intercept virtual dispatch.
 
-  This hooks isDesireActivate() on app.cOtomoToolManaged_Horn_AtkUp and returns
-  true while armed. The game's own update() then drives the tool: we are not
-  calling useOtomoTool(), so the animation and the effect go through the normal
-  path. That is the difference between this and the crash test, which called the
-  action directly and produced nothing.
+  v0.2.0 installs BOTH and counts calls separately, so one hunt answers which
+  mechanism actually reaches the function:
 
-  Off by default. The toggle takes effect immediately (the hook body is gated,
-  not just the install).
+      calls_global  sdk.hook(method_definition)
+      calls_vtable  sdk.hook_vtable(horn_object, "isDesireActivate")
 
-  Output: reframework/data/otomo_desire.json
+  Both paths force the return to true while armed; both only do so when
+  `this` is the horn. That is still not calling useOtomoTool(): the game's own
+  update() performs the use, so animation and effect use the normal path.
+
+  Off by default. Output: reframework/data/otomo_desire.json
 ]]
 
-local VERSION = "0.1.0"
+local VERSION = "0.2.0"
 local TAG = "[OtomoDesire] "
 local FILE = "otomo_desire.json"
 local TOOL_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
 local TARGET = "HORN_ATKUP"
+local METHOD = "isDesireActivate"
 
 local st = {
     armed = false,
-    hooked = false,
-    hook_note = nil,
     mgr_raw = nil,
     mgr_type = nil,
     horn_addr = nil,
-    hits = 0,
-    frames_armed = 0,
-    first_hit = nil,
+    horn = nil,
     tool = nil,
+
+    global_state = "not tried",
+    global_calls = 0,
+    global_hits = 0,
+    vtable_state = "not tried",
+    vtable_calls = 0,
+    vtable_hits = 0,
+
+    first_this = nil,
+    frames_armed = 0,
 }
 
 local function safe(fn, ...)
@@ -52,12 +63,17 @@ local function flush()
         version = VERSION,
         at = os.time(),
         armed = st.armed,
-        hook = st.hook_note,
         manager = st.mgr_type,
         horn_addr = st.horn_addr,
-        hits = st.hits,
+        horn_type = st.horn_type,
+        first_this = st.first_this,
+        global_state = st.global_state,
+        global_calls = st.global_calls,
+        global_hits = st.global_hits,
+        vtable_state = st.vtable_state,
+        vtable_calls = st.vtable_calls,
+        vtable_hits = st.vtable_hits,
         frames_armed = st.frames_armed,
-        first_hit = st.first_hit,
     })
 end
 
@@ -90,10 +106,9 @@ local function enum_value(name)
     return nil
 end
 
--- Resolve the horn object's address OUTSIDE the desire hook. The hook body must
--- never call game methods; it only compares this string.
+-- Resolved OUTSIDE every hook. Hooks only compare strings.
 local function resolve_horn()
-    if st.horn_addr ~= nil then return true end
+    if st.horn ~= nil then return true end
     if not ensure_manager_hook() then return false end
     if st.mgr_raw == nil then return false end
     local mgr = safe(sdk.to_managed_object, st.mgr_raw)
@@ -108,9 +123,10 @@ local function resolve_horn()
             and safe(function() return m:get_num_params() end) == 1 then
             local tool = safe(function() return m:call(mgr, value) end)
             if tool ~= nil then
-                local ptr = safe(sdk.to_ptr, tool)
-                st.horn_addr = tostring(ptr or tool)
                 st.tool = tool
+                st.horn = tool
+                st.horn_addr = tostring(safe(sdk.to_ptr, tool) or tool)
+                st.horn_type = safe(function() return tool:get_type_definition():get_full_name() end)
                 log.info(TAG .. " horn resolved at " .. st.horn_addr)
                 flush()
                 return true
@@ -120,56 +136,85 @@ local function resolve_horn()
     return false
 end
 
--- ------------------------------------------------------------------ hook ----
+-- ----------------------------------------------------------------- hooks ----
 
 local last_this = nil
 
-local function ensure_desire_hook()
-    if st.hooked then return true end
-    local td = safe(sdk.find_type_definition, TOOL_TYPE)
-    if td == nil then
-        st.hook_note = "type not found"
-        return false
-    end
-    local m = safe(function() return td:get_method("isDesireActivate") end)
-    if m == nil then
-        st.hook_note = "method not found"
-        return false
-    end
+local function force(retval, counter)
+    if st.armed ~= true then return retval end
+    if st.horn_addr == nil or last_this == nil then return retval end
+    if tostring(last_this) ~= st.horn_addr then return retval end
+    st[counter] = st[counter] + 1
+    return sdk.to_ptr(true)
+end
 
-    local ok = pcall(function()
-        sdk.hook(m,
+local function ensure_global_hook()
+    if st.global_state ~= "not tried" then return end
+    local td = safe(sdk.find_type_definition, TOOL_TYPE)
+    if td == nil then st.global_state = "type not found" return end
+    local m = safe(function() return td:get_method(METHOD) end)
+    if m == nil then st.global_state = "method not found" return end
+
+    local ok, hook = pcall(function()
+        return sdk.hook(m,
             function(args)
-                -- remember `this`; no conversions, no game calls
                 last_this = args ~= nil and args[2] or nil
-            end,
-            function(retval)
-                if st.armed ~= true then return retval end
-                if st.horn_addr == nil or last_this == nil then return retval end
-                if tostring(last_this) ~= st.horn_addr then return retval end
-                st.hits = st.hits + 1
-                if st.first_hit == nil then
-                    st.first_hit = os.time()
-                    log.info(TAG .. " forcing desire (first hit)")
+                st.global_calls = st.global_calls + 1
+                if st.first_this == nil and last_this ~= nil then
+                    st.first_this = tostring(last_this)
+                    log.info(TAG .. " first this=" .. st.first_this)
                     flush()
                 end
-                return sdk.to_ptr(true)
+            end,
+            function(retval)
+                return force(retval, "global_hits")
             end)
     end)
 
-    st.hooked = ok
-    st.hook_note = ok and "installed" or "hook failed"
-    log.info(TAG .. " desire hook: " .. tostring(st.hook_note))
+    if not ok then
+        st.global_state = "error: " .. tostring(hook)
+    elseif hook == nil then
+        st.global_state = "returned nil (not hookable)"
+    else
+        st.global_state = "installed"
+    end
+    log.info(TAG .. " global hook: " .. tostring(st.global_state))
     flush()
-    return ok
+end
+
+local function ensure_vtable_hook()
+    if st.vtable_state ~= "not tried" then return end
+    if st.horn == nil then return end
+
+    local ok, res = pcall(function()
+        return sdk.hook_vtable(st.horn, METHOD,
+            function(args)
+                last_this = args ~= nil and args[2] or nil
+                st.vtable_calls = st.vtable_calls + 1
+            end,
+            function(retval)
+                return force(retval, "vtable_hits")
+            end)
+    end)
+
+    if not ok then
+        st.vtable_state = "error: " .. tostring(res)
+    elseif res == nil then
+        st.vtable_state = "returned nil"
+    else
+        st.vtable_state = "installed"
+    end
+    log.info(TAG .. " vtable hook: " .. tostring(st.vtable_state))
+    flush()
 end
 
 re.on_frame(function()
     local ok, err = pcall(function()
-        if not st.hooked then ensure_desire_hook() end
+        ensure_global_hook()
+        resolve_horn()
+        ensure_vtable_hook()
         if not st.armed then return end
         st.frames_armed = st.frames_armed + 1
-        if st.horn_addr == nil then resolve_horn() end
         if st.frames_armed % 120 == 0 then flush() end
     end)
     if not ok then log.info(TAG .. " frame error: " .. tostring(err)) end
@@ -178,14 +223,15 @@ end)
 local function draw_body()
     local changed
     imgui.text("Forces isDesireActivate() on the Attack-Up horn.")
-    imgui.text("The game still performs the use - nothing is called directly.")
+    imgui.text("Global hook and vtable hook both installed; each counts its calls.")
     imgui.separator()
-    imgui.text("hook:    " .. tostring(st.hook_note or "not installed"))
-    imgui.text("manager: " .. tostring(st.mgr_type or (st.mgr_raw ~= nil and "captured" or "not captured")))
     imgui.text("horn:    " .. tostring(st.horn_addr or "not resolved"))
-    imgui.text(string.format("forced:  %d      armed for %d frames", st.hits, st.frames_armed))
-    if st.first_hit ~= nil then
-        imgui.text("first hit at: " .. os.date("%H:%M:%S", st.first_hit))
+    imgui.text(string.format("global:  %s   calls %d   forced %d",
+        tostring(st.global_state), st.global_calls, st.global_hits))
+    imgui.text(string.format("vtable:  %s   calls %d   forced %d",
+        tostring(st.vtable_state), st.vtable_calls, st.vtable_hits))
+    if st.first_this ~= nil then
+        imgui.text("first this: " .. tostring(st.first_this))
     end
     imgui.separator()
     changed, st.armed = imgui.checkbox("Force desire (horn always wants to fire)", st.armed)
