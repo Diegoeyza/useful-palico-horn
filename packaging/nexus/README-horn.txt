@@ -44,7 +44,7 @@ Settings live in reframework/data/otomo_horn.json:
 
     {
       "enabled": true,
-      "hotkey": "587",
+      "hotkey": "599",
       "min_interval_sec": 0.5,
       "auto_when_down": false,
       "global_cooldown_sec": 480,
@@ -62,4 +62,5 @@ Notes
   function key already has a game binding, so F-keys are a bad choice.
 * To change it: click *Find my key* in the panel and hold the key you want
   (letters and punctuation work; some symbols do not report through ImGui).
-  The raw value is written to "hotkey" in the config - `.` is 587.
+  The raw value is written to "hotkey" in the config - `.` is 599 on this
+  build.

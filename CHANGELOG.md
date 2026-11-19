@@ -1,5 +1,13 @@
 # Changelog
 
+## Otomo Horn 0.11.2 — 2026-11-18
+
+- Default hotkey corrected to **599**, which is what `.` reports on this build
+  (stock ImGui uses 587, so the label table only keeps values confirmed in game).
+- Removed the "Log keys" diagnostic button; the key value is known, and it had
+  no use left.
+
+
 ## Otomo Horn 0.11.1 — 2026-11-18
 
 - **Base game cooldown is 8 minutes (480 s)**, hardcoded. It was reading

@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "0.11.1"
+local VERSION = "0.11.2"
 local TAG = "[OtomoHorn] "
 
 local CONFIG_FILE = "otomo_horn.json"
@@ -40,7 +40,7 @@ local METHOD_NAME = "setActionRequest"
 local state = {
     cfg = {
         enabled = true,
-        hotkey = "587",          -- "." (ImGuiKey_Period): unused by the game
+        hotkey = "599",          -- "." on this build: unused by the game
         min_interval_sec = 0.5,
         auto_when_down = false,
         use_base_cooldown = true,
@@ -84,7 +84,6 @@ local state = {
     binding = false,
     key_list = nil,
     scan = nil,             -- { i = next value, max = limit }
-    logkeys = nil,          -- diagnostic: just record what is down/pressed
     bind_block_until = nil,
 
     trace = {},
@@ -436,10 +435,9 @@ end
 -- ImGui does not expose a key enum on this build (the table is empty), so the
 -- common values are labelled here for display only.
 local KEY_LABELS = {
-    [512] = "Tab", [524] = "Space", [525] = "Enter", [526] = "Esc",
-    [584] = "'", [585] = ",", [586] = "-", [587] = ".", [588] = "/",
-    [589] = ";", [590] = "=", [591] = "[", [592] = "\\", [593] = "]",
-    [594] = "`",
+    -- Confirmed on this build: "." reports as 599 (not 587 as in stock ImGui),
+    -- so only values actually seen in game are labelled here.
+    [599] = ".",
 }
 
 local function key_label(v)
@@ -643,11 +641,7 @@ local function draw_body()
                 state.scan = { started = state.frames or 0 }
                 trace("scan started")
             end
-            imgui.same_line()
-            if imgui.button("Log keys (hold a key 2 s)") then
-                state.logkeys = { started = state.frames or 0 }
-                trace("logkeys started")
-            end
+
         else
             if imgui.button("Bind hotkey") then
                 state.binding = true
@@ -711,32 +705,6 @@ end
 -- is not a key at all). A press must also be stable for two frames.
 local SCAN_MIN = 512          -- below this are mouse buttons and legacy keys
 local SCAN_MAX = 600
-
--- Diagnostic: record every value that reports down or pressed, without binding.
--- This tells us where this build's key values actually are.
-local function try_logkeys()
-    if state.logkeys == nil then return end
-    if (state.frames or 0) - state.logkeys.started > 900 then
-        state.logkeys = nil
-        trace("logkeys finished")
-        return
-    end
-    if (state.frames or 0) % 30 ~= 0 then return end
-
-    local downs, presses = {}, {}
-    for v = 0, 700 do
-        local ok1, d = pcall(imgui.is_key_down, v)
-        if ok1 and d == true then downs[#downs + 1] = v end
-        if imgui.is_key_pressed ~= nil then
-            local ok2, pr = pcall(imgui.is_key_pressed, v)
-            if ok2 and pr == true then presses[#presses + 1] = v end
-        end
-    end
-    if #downs > 0 or #presses > 0 then
-        trace("logkeys down=[" .. table.concat(downs, ",") .. "] pressed=["
-            .. table.concat(presses, ",") .. "]")
-    end
-end
 
 local function try_scan()
     if state.scan == nil then return false end
@@ -810,7 +778,6 @@ local function try_bind()
 end
 
 re.on_draw_ui(function()
-    try_logkeys()
     local consumed = try_scan() or try_bind()
     local okk, pressed_now = false, false
     if not consumed then
