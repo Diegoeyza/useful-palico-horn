@@ -1,5 +1,24 @@
 # Changelog
 
+## Sibling mod: Otomo Horn 0.1.0 — 2026-11-18
+
+New file, `reframework/otomo_horn.lua`, packaged separately
+(`OtomoHorn-0.1.0.zip`, `otomo-horn-0.1.0.zip`).
+
+It fires the Attack-Up horn on command (hotkey, default F6, plus a panel
+button). It does not touch the tool system at all: the hook on
+`app.OtomoCharacter:setActionRequest` is read-only and only captures the
+Palico's action object, then the mod calls the same method with action id
+**0x85** (`cUseHorn`) from `on_frame`. This is the mechanism used by Nexus mod
+627 (PalicoMod.dll), reproduced from Lua without modifying hook arguments.
+
+Verified in game: the horn plays and the buff applies, including after the buff
+has expired - so the ~4 min tool refractory does not apply to this path.
+
+Splitting the mods is deliberate: Otomo Tools stays data-only and hook-free;
+Otomo Horn performs an action.
+
+
 ## 1.0.3 — 2026-11-18
 
 - The live buff state now sits at the top of the panel (`buff now: UP / down`,

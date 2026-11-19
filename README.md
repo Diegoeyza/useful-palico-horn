@@ -1,19 +1,37 @@
-# Otomo Tools
+# Otomo mods
 
-A REFramework mod for Monster Hunter Wilds that makes the Palico use a chosen
-support move more often — first target, the Attack-Up horn ("the trumpet"), but
-every Palico tool is configurable.
+Two sibling REFramework mods for Monster Hunter Wilds, one repo, installed
+independently:
 
-## Status
+| Mod | File | What it does |
+|---|---|---|
+| **Otomo Tools** | `reframework/otomo_tools.lua` | Data only, zero hooks: rewrites the Palico's tool cooldowns (the Attack-Up horn ships at 600 s), optionally the global cooldown, and counts horn uses / uptime. |
+| **Otomo Horn** | `reframework/otomo_horn.lua` | Fires the horn's action on command (default **F6**), so the buff lands on a paralysis or a trap instead of whenever the AI decides. Bypasses the tool cooldown entirely. |
 
-**v0.5.0 — data tuning, a horn counter, and an opt-in force-use.** The Palico's tool cooldowns
-are plain data, and the Attack-Up horn ships with a **600 s** cooldown. This mod
-writes that number down to whatever you pick (default 90 s), per tool, and
-counts how often the buff actually goes up so the result can be measured.
+They do not conflict and can run together. Splitting them is deliberate: Otomo
+Tools only writes user data and can never drive the game, while Otomo Horn
+performs an action. Different risk, different product.
 
-Verified in game: the value writes and sticks (`600 -> 90 via set_field`), and
-the game does not re-assert it. Not yet verified: how much the AI's desire gate
-then limits actual use — the counter answers that.
+## Otomo Tools
+
+Makes the Palico use a chosen support move more often — first target, the
+Attack-Up horn ("the trumpet"), but every Palico tool is configurable.
+
+### Status
+
+**v1.0.3 — cooldown tuning + a read-only counter. No hooks.**
+
+The Palico's tool cooldowns are plain data, and the Attack-Up horn ships with a
+**600 s** cooldown. This mod writes that number down per tool and counts how
+often the buff actually goes up, with a live `buff now: UP / down` line at the
+top of the panel.
+
+Measured in game: the write reaches the runtime (`_CoolTime` 600 → 90 on the
+live tool object), and the effect is roughly **double** the frequency (~1.6-2
+uses per 10 min against a ceiling of ~1 at 600 s). The real limiter turned out
+to be the AI's desire gate, not the cooldown — see `CHANGELOG.md` and
+`docs/CRASH-TEST.md` for the measurements that established it, and `Otomo Horn`
+for the mod that solves the timing properly.
 
 ## How it works
 
