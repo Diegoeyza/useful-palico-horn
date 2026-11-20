@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.7"
+local VERSION = "1.1.8"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -998,6 +998,14 @@ local function fire(reason)
         return false
     end
 
+    -- single authoritative gate: nothing fires while the next-buff countdown
+    -- is running, whatever the trigger or its reason
+    local left = cooldown_left()
+    if left > 0 then
+        state.last_result = string.format("held by cooldown: %d s left", left)
+        return false
+    end
+
     local min_frames = (state.cfg.min_interval_sec or 0.5) * 60
     if state.fires > 0 and (state.frames - state.last_fire_frame) < min_frames then
         state.last_result = "debounced"
@@ -1270,7 +1278,6 @@ re.on_frame(function()
                 trace("request: " .. tostring(reason))
             end
 
-            local exempt = (reason == "first hit" or reason == "quest start")
             local left = cooldown_left()
 
             local last = state.reason_last[reason]
@@ -1279,7 +1286,7 @@ re.on_frame(function()
                 state.last_result = string.format("%s debounced (%d s)", reason,
                     math.floor(since / 60))
                 trace("debounced: " .. tostring(reason))
-            elseif not exempt and left > 0 then
+            elseif left > 0 then
                 state.last_result = string.format("held by cooldown: %d s left", left)
                 trace("held by cooldown: " .. tostring(reason))
             else
@@ -1363,8 +1370,7 @@ local function draw_body()
     local left = cooldown_left()
     imgui.text(left > 0 and string.format("  next buff in %d s", left)
         or "  buff ready")
-    imgui.text("  applies to every trigger below,")
-    imgui.text("  except first hit and quest start")
+    imgui.text("  applies to every trigger below, without exception")
 
     imgui.separator()
     imgui.text("Triggers")
