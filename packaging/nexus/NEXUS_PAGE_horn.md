@@ -123,46 +123,13 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
-[b]1.1.6[/b]
+[b]1.1.8[/b] - first public release
 [list]
-[*]Fixed the buff state reader: the object walk treated every object as an empty list, so it never found the buff.
-[/list]
-
-[b]1.1.5[/b]
-[list]
-[*]The buff state is read from every candidate object found in the Palico/hunter object graph, not a single fixed one, so the panel reflects the real buff.
-[/list]
-
-[b]1.1.4[/b]
-[list]
-[*]Diagnostic: log which buff methods the condition manager exposes.
-[/list]
-
-[b]1.1.3[/b]
-[list]
-[*]The quest-start shot waits ~4 s so the Palico can act; an early request is silently ignored by the game.
-[*]The buff state object is re-resolved per quest, so the panel cannot report a stale "down".
-[*]A fire that produces no buff restores the cooldown instead of spending 8 minutes on nothing.
-[/list]
-
-[b]1.1.2[/b]
-[list]
-[*]The cooldown now resets at quest start, matching the game. Previously it carried over between hunts and could block the first triggers of the next quest.
-[*]Per-trigger 3 s debounce, so a flickering condition cannot fire the horn several times for one event.
-[/list]
-
-[b]1.1.1[/b]
-[list]
-[*]Change hotkey button: click it, hold the key you want, done. No file editing needed.
-[/list]
-
-[b]1.1.0[/b]
-[list]
-[*]Renamed from Otomo Horn to Useful Palico Horn.
-[*]Triggers: first hit, quest start, trapped, stunned, paralyzed, buff runs out, manual hotkey/button.
-[*]Base-game 8 minute cooldown (or a custom value) with first hit and quest start exempt.
-[*]Hotkey [b].[/b], configurable in the JSON.
-[*]Trap, stun and paralysis verified in game.
+[*]Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
+[*]Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
+[*]The cooldown resets at the start of each quest.
+[*]Change hotkey button in the panel (default .).
+[*]Live buff state (buff: UP / down). A fire the game ignores restores the cooldown instead of spending it.
 [/list]
 
 [line]
@@ -177,33 +144,12 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 **Changelog field:**
 
 ```
-1.1.6
-- Fixed the buff state reader: the object walk treated every object as an empty list, so it never found the buff.
-
-1.1.5
-- The buff state is read from every candidate object found in the Palico/hunter object graph, not a single fixed one, so the panel reflects the real buff.
-
-1.1.4
-- Diagnostic: log which buff methods the condition manager exposes.
-
-1.1.3
-- The quest-start shot waits ~4 s so the Palico can act; an early request is silently ignored by the game.
-- The buff state object is re-resolved per quest, so the panel cannot report a stale "down".
-- A fire that produces no buff restores the cooldown instead of spending 8 minutes on nothing.
-
-1.1.2
-- The cooldown now resets at quest start, matching the game. Previously it carried over between hunts and could block the first triggers of the next quest.
-- Per-trigger 3 s debounce, so a flickering condition cannot fire the horn several times for one event.
-
-1.1.1
-- Change hotkey button: click it, hold the key you want, done. No file editing needed.
-
-1.1.0
-- Renamed from Otomo Horn to Useful Palico Horn.
-- Triggers: first hit, quest start, trapped, stunned, paralyzed, buff runs out, manual hotkey/button.
-- Base-game 8 minute cooldown (or a custom value); first hit and quest start exempt.
-- Hotkey . (period), configurable in the JSON.
-- Trap, stun and paralysis verified in game.
+1.1.8 - first public release
+- Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
+- Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
+- The cooldown resets at the start of each quest.
+- Change hotkey button in the panel (default .).
+- Live buff state (buff: UP / down). A fire the game ignores restores the cooldown instead of spending it.
 ```
 
 **File to upload:** `dist/UsefulPalicoHorn-1.1.8.zip`
