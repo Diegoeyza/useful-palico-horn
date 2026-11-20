@@ -1,5 +1,22 @@
 # Changelog
 
+## Useful Palico Horn 1.1.7 — 2026-11-20
+
+Still `buff objects: 0` after 1.1.6. Three differences from the old counter's
+walker, all fixed:
+
+- **Seed the walk with objects resolved directly** (master otomo control, master
+  character, `_StockDamage._Condition`) instead of relying on traversal alone.
+- **Walk parent types** for fields. `get_fields()` only returns declared fields,
+  and the control's fields live on a base class - so the walk found nothing.
+- **Accept `isEnableAttackUpIcon` as well as `isActiveAttackUp`**. The old
+  counter's chosen signal was `isEnableAttackUpIcon`; both are now read on every
+  candidate and either may report the buff.
+
+Trace now logs `buff objects: N (roots M)` and a per-object
+`active=.. icon=..` diagnostic.
+
+
 ## Useful Palico Horn 1.1.6 — 2026-11-20
 
 `buff objects: 0` in the trace: the graph walk never left its roots.
