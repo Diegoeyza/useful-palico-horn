@@ -1,5 +1,20 @@
 # Changelog
 
+## Useful Palico Horn 1.1.5 — 2026-11-20
+
+The buff state never left `down`, even while the horn played. The diagnostic
+showed why: every flag on the condition object the mod was reading stayed
+false for the whole session - it is not the object that tracks the buff. Earlier
+object-graph probing had found **six** candidate objects; the mod had been
+narrowed to a single, dead one.
+
+- The buff reader now **walks the object graph** from `app.OtomoManager`, the
+  master otomo control and the local hunter (depth 5, 400 nodes), collects every
+  object exposing `isActiveAttackUp`, and reports UP if any of them says so.
+- The resolved set is refreshed every 10 s and at quest start, and the count is
+  logged (`buff objects: N`) plus a `buff diag:` line when the values change.
+
+
 ## Useful Palico Horn 1.1.3 — 2026-11-20
 
 Follow-up to 1.1.2, from the first live test of the quest-start trigger: the horn

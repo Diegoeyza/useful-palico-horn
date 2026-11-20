@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -62,8 +62,9 @@ local state = {
     captured_at = nil,
     captures = 0,
 
-    condition = nil,
     buff = nil,
+    buff_objs = nil,
+    buff_checked = nil,
     buff_checked = 0,
 
     base_cooldown = nil,
@@ -608,57 +609,141 @@ end
 
 -- ------------------------------------------------------------------ buff ----
 
-local function resolve_condition()
-    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
-    if om == nil then return nil end
-    local ctl = getter(om, "getMasterOtomoManagedControl")
-    if ctl == nil then return nil end
-    local info = field_value(ctl, "_OtomoManagedInfo") or getter(ctl, "get_OtomoManagedInfo")
-    if info == nil then return nil end
-    local char = field_value(info, "<Character>k__BackingField")
-    if char == nil then return nil end
-    local stock = field_value(char, "_StockDamage")
-    if stock == nil then return nil end
-    local cond = field_value(stock, "_Condition")
-    if cond == nil then return nil end
-    if method0(cond, "isActiveAttackUp") == nil then return nil end
-    return cond
+-- The buff is not on the first condition manager found: walking the object graph
+-- turned up six candidates in earlier testing, and `_StockDamage._Condition`
+-- reports false forever (verified: all four flags stayed false through a horn
+-- use). So collect every object that exposes isActiveAttackUp near the Palico
+-- and the hunter, and treat the buff as up if any of them says so.
+
+local function children_of(obj)
+    local out = {}
+    local n = array_len(obj)
+    if n ~= nil then
+        for i = 0, math.min(n - 1, 32) do
+            local v = safe(function() return obj[i] end)
+            if v ~= nil then out[#out + 1] = v end
+        end
+        return out
+    end
+    local td = safe(function() return obj:get_type_definition() end)
+    if td == nil then return out end
+    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+        if safe(function() return f:is_static() end) ~= true then
+            local v = safe(function() return f:get_data(obj) end)
+            if v ~= nil then out[#out + 1] = v end
+        end
+    end
+    return out
 end
 
-local function buff_diagnostic()
-    local cond = state.condition
-    if cond == nil then return "no condition object" end
-    local td = safe(function() return cond:get_type_definition() end)
-    if td == nil then return "no type" end
-    local parts = {}
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        local n = safe(function() return m:get_name() end)
-        if type(n) == "string" and safe(function() return m:get_num_params() end) == 0
-            and n:match("^is") then
-            local l = n:lower()
-            if l:find("attack") or l:find("defen") or l:find("horn") or l:find("icon") then
-                local v = safe(function() return m:call(cond) end)
-                parts[#parts + 1] = n .. "=" .. tostring(v)
+local function local_hunter()
+    local pm = safe(sdk.get_managed_singleton, "app.PlayerManager")
+    if pm == nil then return nil end
+    local list = field_value(pm, "_InstancedPlayerList")
+    if list ~= nil then
+        local n = array_len(list)
+        if n ~= nil then
+            for i = 0, math.min(n - 1, 8) do
+                local p = safe(function() return list[i] end)
+                if p ~= nil then
+                    local user = getter(p, "get_IsUserControl")
+                    local npc = getter(p, "get_IsNpc")
+                    if user == true and npc ~= true then return p end
+                end
             end
         end
     end
-    table.sort(parts)
-    return table.concat(parts, " ")
+    return getter(pm, "getMasterPlayer")
+end
+
+local function buff_roots()
+    local roots = {}
+    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
+    if om ~= nil then
+        roots[#roots + 1] = om
+        local ctl = getter(om, "getMasterOtomoManagedControl")
+        if ctl ~= nil then roots[#roots + 1] = ctl end
+    end
+    local hunter = local_hunter()
+    if hunter ~= nil then roots[#roots + 1] = hunter end
+    return roots
+end
+
+local function collect_buff_objects()
+    local out, seen = {}, {}
+    local queue, head, tail = {}, 1, 0
+    for _, r in ipairs(buff_roots()) do
+        if r ~= nil then
+            tail = tail + 1
+            queue[tail] = { obj = r, depth = 0 }
+            seen[r] = true
+        end
+    end
+    local nodes = 0
+    while head <= tail and nodes < 400 do
+        local it = queue[head]
+        queue[head] = nil
+        head = head + 1
+        nodes = nodes + 1
+        if safe(function() return sdk.is_managed_object(it.obj) end) == true then
+            if method0(it.obj, "isActiveAttackUp") ~= nil then
+                out[#out + 1] = it.obj
+            end
+            if it.depth < 5 then
+                for _, child in ipairs(children_of(it.obj)) do
+                    if not seen[child]
+                        and safe(function() return sdk.is_managed_object(child) end) == true then
+                        seen[child] = true
+                        tail = tail + 1
+                        queue[tail] = { obj = child, depth = it.depth + 1 }
+                    end
+                end
+            end
+        end
+    end
+    return out
 end
 
 local function read_buff()
-    if state.condition == nil then state.condition = resolve_condition() end
-    if state.condition == nil then state.buff = nil return nil end
-    local m = method0(state.condition, "isActiveAttackUp")
-    if m == nil then state.condition = nil state.buff = nil return nil end
-    local v = safe(function() return m:call(state.condition) end)
-    if type(v) ~= "boolean" then
-        state.condition = nil
-        state.buff = nil
-        return nil
+    if state.buff_objs == nil
+        or (state.frames - (state.buff_checked or 0)) > 600 then
+        state.buff_objs = collect_buff_objects()
+        state.buff_checked = state.frames
+        trace("buff objects: " .. #state.buff_objs)
     end
-    state.buff = v
-    return v
+
+    local any = false
+    for _, obj in ipairs(state.buff_objs or {}) do
+        local m = method0(obj, "isActiveAttackUp")
+        if m ~= nil then
+            local v = safe(function() return m:call(obj) end)
+            if v == true then
+                state.buff = true
+                return true
+            end
+            if v == false then any = true end
+        end
+    end
+    if any then
+        state.buff = false
+    else
+        state.buff = nil
+    end
+    return state.buff
+end
+
+local function buff_diagnostic()
+    if state.buff_objs == nil then return "not resolved" end
+    local parts = {}
+    for i, obj in ipairs(state.buff_objs) do
+        local td = safe(function() return obj:get_type_definition() end)
+        local tn = td and safe(function() return td:get_full_name() end) or "?"
+        local m = method0(obj, "isActiveAttackUp")
+        local v = m and safe(function() return m:call(obj) end)
+        parts[#parts + 1] = string.format("%d:%s=%s", i, tostring(tn), tostring(v))
+    end
+    if #parts == 0 then return "none" end
+    return table.concat(parts, " ")
 end
 
 -- ------------------------------------------------------------------ hook ----
@@ -1048,7 +1133,7 @@ re.on_frame(function()
         install()
         state.frames = state.frames + 1
 
-        if state.frames % 600 == 0 then state.condition = nil end
+        if state.frames % 600 == 0 then state.buff_objs = nil end
         if state.frames % 15 == 0 then read_buff() end
         if state.frames % 150 == 0 then
             local diag = buff_diagnostic()
@@ -1067,7 +1152,7 @@ re.on_frame(function()
                     state.last_fire_time = nil
                     state.first_hit_done = false
                     state.reason_last = {}
-                    state.condition = nil
+                    state.buff_objs = nil
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                     state.quest_start_at = state.frames + 240   -- ~4 s settle
                 end
