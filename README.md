@@ -1,5 +1,8 @@
 # Otomo mods
 
+Source: https://github.com/Diegoeyza/useful-palico-horn
+
+
 Two sibling REFramework mods for Monster Hunter Wilds, one repo, installed
 independently:
 

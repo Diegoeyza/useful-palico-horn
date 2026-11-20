@@ -142,6 +142,8 @@ Default Steam path:
 [list]
 [*][url=https://github.com/praydog/REFramework]REFramework[/url] by praydog
 [/list]
+
+Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.com/Diegoeyza/useful-palico-horn[/url]
 ```
 
 **Changelog field:**

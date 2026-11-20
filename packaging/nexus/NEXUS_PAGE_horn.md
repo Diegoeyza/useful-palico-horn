@@ -139,6 +139,8 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 [list]
 [*][url=https://github.com/praydog/REFramework]REFramework[/url] by praydog
 [/list]
+
+Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.com/Diegoeyza/useful-palico-horn[/url]
 ```
 
 **Changelog field:**
