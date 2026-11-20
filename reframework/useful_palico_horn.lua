@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -82,6 +82,10 @@ local state = {
     scan = nil,              -- { started = frame } while binding a hotkey
     was_playing = nil,
     quest_start_pending = false,
+    quest_start_at = nil,
+    confirm_at = nil,
+    confirm_prev = nil,
+    confirm_reason = nil,
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -865,6 +869,7 @@ local function fire(reason)
         return false
     end
 
+    local prev_fire_time = state.last_fire_time
     local self = safe(sdk.to_managed_object, state.self)
     local ok, ret = pcall(function()
         return state.method:call(self, HORN_ACTION, state.append)
@@ -876,6 +881,12 @@ local function fire(reason)
     state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
         or ("error: " .. tostring(ret))
     trace("fire #" .. state.fires .. " " .. tostring(reason) .. " -> " .. tostring(state.last_result))
+
+    if ok then
+        state.confirm_at = state.frames + 240   -- ~4 s for the buff to register
+        state.confirm_prev = prev_fire_time
+        state.confirm_reason = reason
+    end
     return ok
 end
 
@@ -1015,6 +1026,7 @@ re.on_frame(function()
         install()
         state.frames = state.frames + 1
 
+        if state.frames % 600 == 0 then state.condition = nil end
         if state.frames % 15 == 0 then read_buff() end
         if state.frames % 30 == 0 then monster_scan() end
 
@@ -1026,7 +1038,9 @@ re.on_frame(function()
                     state.last_fire_time = nil
                     state.first_hit_done = false
                     state.reason_last = {}
+                    state.condition = nil
                     state.quest_start_pending = state.cfg.fire_on_quest_start
+                    state.quest_start_at = state.frames + 240   -- ~4 s settle
                 end
                 if playing == false then
                     state.quest_start_pending = false
@@ -1057,7 +1071,8 @@ re.on_frame(function()
         -- quest start: stays armed until the Palico has been captured and the
         -- horn actually fires (exempt from the cooldown)
         if state.cfg.fire_on_quest_start and state.quest_start_pending
-            and state.pending_fire == nil and state.self ~= nil then
+            and state.pending_fire == nil and state.self ~= nil
+            and state.frames >= (state.quest_start_at or 0) then
             state.pending_fire = "quest start"
             state.pending_kind = "event"
         end
@@ -1069,6 +1084,21 @@ re.on_frame(function()
                 state.pending_fire = what
                 state.pending_kind = "event"
             end
+        end
+
+        if state.confirm_at ~= nil and state.frames >= state.confirm_at then
+            local applied = state.buff == true
+            if not applied then
+                -- the action call succeeded but the game ignored it (usually the
+                -- Palico was not ready yet): do not spend the cooldown on it
+                state.last_fire_time = state.confirm_prev
+                state.last_result = "no buff - cooldown restored ("
+                    .. tostring(state.confirm_reason) .. ")"
+                trace("refunded: " .. tostring(state.confirm_reason))
+            end
+            state.confirm_at = nil
+            state.confirm_prev = nil
+            state.confirm_reason = nil
         end
 
         if state.dump_requested then

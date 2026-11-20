@@ -1,5 +1,21 @@
 # Changelog
 
+## Useful Palico Horn 1.1.3 — 2026-11-20
+
+Follow-up to 1.1.2, from the first live test of the quest-start trigger: the horn
+fired at the transition, produced no buff, and still consumed the 8 minute
+cooldown (panel: `buff: down`, `next buff in 460 s`).
+
+- **Quest-start shot now waits ~4 s** after the quest begins. A request issued
+  while the Palico is still spawning is accepted and silently ignored.
+- **The buff object is re-resolved** on quest start and every 10 s. It is
+  recreated with the quest, and a cached one keeps answering `false`, so
+  `buff: down` could be a stale read rather than a real state.
+- **No-op fires are refunded.** If no buff is up ~4 s after a fire, the cooldown
+  is restored to what it was before, so a silently ignored action cannot lock
+  the horn out for 8 minutes.
+
+
 ## Useful Palico Horn 1.1.2 — 2026-11-20
 
 Reported by a user: with the cooldown on, the triggers never fired in a new hunt.

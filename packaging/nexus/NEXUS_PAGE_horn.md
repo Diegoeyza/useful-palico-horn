@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.2
+# Nexus page — Useful Palico Horn v1.1.3
 
-Upload `dist/UsefulPalicoHorn-1.1.2.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.3.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -39,7 +39,7 @@ This mod gives you the timing. The horn is the Palico's own horn: the game still
 
 [list]
 [*][b]On the first hit to the monster[/b] — the buff goes up as soon as the fight starts.
-[*][b]At quest start[/b] — as soon as the Palico is ready.
+[*][b]At quest start[/b] — about 4 seconds in, once the Palico can actually act.
 [*][b]When the monster is trapped[/b] — pitfall, shock and ivy traps.
 [*][b]When the monster is stunned[/b] — the KO with stars.
 [*][b]When the monster is paralyzed[/b] — the paralysis ailment.
@@ -123,6 +123,13 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
+[b]1.1.3[/b]
+[list]
+[*]The quest-start shot waits ~4 s so the Palico can act; an early request is silently ignored by the game.
+[*]The buff state object is re-resolved per quest, so the panel cannot report a stale "down".
+[*]A fire that produces no buff restores the cooldown instead of spending 8 minutes on nothing.
+[/list]
+
 [b]1.1.2[/b]
 [list]
 [*]The cooldown now resets at quest start, matching the game. Previously it carried over between hunts and could block the first triggers of the next quest.
@@ -155,6 +162,11 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 **Changelog field:**
 
 ```
+1.1.3
+- The quest-start shot waits ~4 s so the Palico can act; an early request is silently ignored by the game.
+- The buff state object is re-resolved per quest, so the panel cannot report a stale "down".
+- A fire that produces no buff restores the cooldown instead of spending 8 minutes on nothing.
+
 1.1.2
 - The cooldown now resets at quest start, matching the game. Previously it carried over between hunts and could block the first triggers of the next quest.
 - Per-trigger 3 s debounce, so a flickering condition cannot fire the horn several times for one event.
@@ -170,10 +182,10 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 - Trap, stun and paralysis verified in game.
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.2.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.3.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.1.2
+- Version: 1.1.3
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)
