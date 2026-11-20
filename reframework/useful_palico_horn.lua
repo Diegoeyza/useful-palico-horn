@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.6"
+local VERSION = "1.1.7"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -626,12 +626,16 @@ local function children_of(obj)
         return out
     end
     local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return out end
-    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-        if safe(function() return f:is_static() end) ~= true then
-            local v = safe(function() return f:get_data(obj) end)
-            if v ~= nil then out[#out + 1] = v end
+    local depth = 0
+    while td ~= nil and depth < 5 do
+        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+            if safe(function() return f:is_static() end) ~= true then
+                local v = safe(function() return f:get_data(obj) end)
+                if v ~= nil then out[#out + 1] = v end
+            end
         end
+        td = safe(function() return td:get_parent_type() end)
+        depth = depth + 1
     end
     return out
 end
@@ -656,13 +660,27 @@ local function local_hunter()
     return getter(pm, "getMasterPlayer")
 end
 
+-- Roots: the manager, the master otomo control, the master character and the
+-- local hunter. The character and the condition object are resolved directly
+-- because that path is known to work, and they seed the walk even if it stalls.
 local function buff_roots()
     local roots = {}
     local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
     if om ~= nil then
         roots[#roots + 1] = om
         local ctl = getter(om, "getMasterOtomoManagedControl")
-        if ctl ~= nil then roots[#roots + 1] = ctl end
+        if ctl ~= nil then
+            roots[#roots + 1] = ctl
+            local info = field_value(ctl, "_OtomoManagedInfo")
+                or getter(ctl, "get_OtomoManagedInfo")
+            local char = info and field_value(info, "<Character>k__BackingField")
+            if char ~= nil then
+                roots[#roots + 1] = char
+                local stock = field_value(char, "_StockDamage")
+                local cond = stock and field_value(stock, "_Condition")
+                if cond ~= nil then roots[#roots + 1] = cond end
+            end
+        end
     end
     local hunter = local_hunter()
     if hunter ~= nil then roots[#roots + 1] = hunter end
@@ -704,19 +722,29 @@ local function collect_buff_objects()
     return out
 end
 
+local BUFF_METHODS = { "isActiveAttackUp", "isEnableAttackUpIcon" }
+
+local function obj_flag(obj, name)
+    local m = method0(obj, name)
+    if m == nil then return nil end
+    local v = safe(function() return m:call(obj) end)
+    if type(v) == "boolean" then return v end
+    return nil
+end
+
 local function read_buff()
     if state.buff_objs == nil
         or (state.frames - (state.buff_checked or 0)) > 600 then
         state.buff_objs = collect_buff_objects()
         state.buff_checked = state.frames
-        trace("buff objects: " .. #state.buff_objs)
+        trace("buff objects: " .. #state.buff_objs
+            .. " (roots " .. tostring(#buff_roots()) .. ")")
     end
 
     local any = false
     for _, obj in ipairs(state.buff_objs or {}) do
-        local m = method0(obj, "isActiveAttackUp")
-        if m ~= nil then
-            local v = safe(function() return m:call(obj) end)
+        for _, name in ipairs(BUFF_METHODS) do
+            local v = obj_flag(obj, name)
             if v == true then
                 state.buff = true
                 return true
@@ -738,9 +766,9 @@ local function buff_diagnostic()
     for i, obj in ipairs(state.buff_objs) do
         local td = safe(function() return obj:get_type_definition() end)
         local tn = td and safe(function() return td:get_full_name() end) or "?"
-        local m = method0(obj, "isActiveAttackUp")
-        local v = m and safe(function() return m:call(obj) end)
-        parts[#parts + 1] = string.format("%d:%s=%s", i, tostring(tn), tostring(v))
+        parts[#parts + 1] = string.format("%d:%s active=%s icon=%s", i, tostring(tn),
+            tostring(obj_flag(obj, "isActiveAttackUp")),
+            tostring(obj_flag(obj, "isEnableAttackUpIcon")))
     end
     if #parts == 0 then return "none" end
     return table.concat(parts, " ")
