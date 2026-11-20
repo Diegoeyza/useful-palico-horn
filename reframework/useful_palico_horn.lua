@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.9"
+local VERSION = "1.2.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -43,6 +43,7 @@ local state = {
         hotkey = "599",          -- "." on this build: unused by the game
         min_interval_sec = 0.5,
         auto_when_down = false,
+        suppress_ai = true,
         use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
@@ -85,6 +86,13 @@ local state = {
     quest_start_pending = false,
     quest_start_at = nil,
     diag_sig = nil,
+    desire_hook = "not tried",
+    desire_blocked = 0,
+    desire_calls = 0,
+    firing = false,
+    uses_ours = 0,
+    uses_ai = 0,
+    use_hook = "not tried",
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -142,6 +150,7 @@ local function load_config()
         c.min_interval_sec = math.max(0, math.min(10, raw.min_interval_sec))
     end
     if raw.auto_when_down ~= nil then c.auto_when_down = raw.auto_when_down == true end
+    if raw.suppress_ai ~= nil then c.suppress_ai = raw.suppress_ai == true end
     if raw.use_base_cooldown ~= nil then
         c.use_base_cooldown = raw.use_base_cooldown == true
     end
@@ -1010,9 +1019,11 @@ local function fire(reason)
     end
 
     local self = safe(sdk.to_managed_object, state.self)
+    state.firing = true
     local ok, ret = pcall(function()
         return state.method:call(self, HORN_ACTION, state.append)
     end)
+    state.firing = false
 
     state.fires = state.fires + 1
     state.last_fire_frame = state.frames
@@ -1152,11 +1163,63 @@ local function dump_monster()
     trace("monster dump written")
 end
 
+-- The Palico's AI can play the horn on its own, and that use is gated only by
+-- the game's tool cooldown - not by ours. Verified in a hunt: our count showed
+-- 376 s left while the buff came up anyway, with our fire count unchanged.
+-- Suppressing isDesireActivate stops the AI's use; our own fire calls the action
+-- request directly, so it is unaffected.
+local DESIRE_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
+
+local function install_desire_hook()
+    if state.desire_hook ~= "not tried" then return end
+    local td = safe(sdk.find_type_definition, DESIRE_TYPE)
+    if td == nil then state.desire_hook = "type not found" return end
+    local m = safe(function() return td:get_method("isDesireActivate") end)
+    if m == nil then state.desire_hook = "method not found" return end
+    local ok = pcall(function()
+        sdk.hook(m, function(args)
+            state.desire_calls = state.desire_calls + 1
+        end, function(retval)
+            if state.cfg.suppress_ai and state.cfg.enabled then
+                state.desire_blocked = state.desire_blocked + 1
+                return sdk.to_ptr(false)
+            end
+            return retval
+        end)
+    end)
+    state.desire_hook = ok and "installed" or "hook failed"
+    trace("desire hook: " .. tostring(state.desire_hook))
+end
+
+-- Diagnostic: the horn tool's own use, so AI uses can be counted instead of
+-- inferred from the buff state.
+local function install_use_hook()
+    if state.use_hook ~= "not tried" then return end
+    local td = safe(sdk.find_type_definition, DESIRE_TYPE)
+    if td == nil then state.use_hook = "type not found" return end
+    local m = safe(function() return td:get_method("useOtomoTool") end)
+    if m == nil then state.use_hook = "method not found" return end
+    local ok = pcall(function()
+        sdk.hook(m, function(args)
+            if state.firing then
+                state.uses_ours = state.uses_ours + 1
+            else
+                state.uses_ai = state.uses_ai + 1
+                trace("AI horn use #" .. state.uses_ai)
+            end
+        end, function(retval) return retval end)
+    end)
+    state.use_hook = ok and "installed" or "hook failed"
+    trace("use hook: " .. tostring(state.use_hook))
+end
+
 -- ----------------------------------------------------------------- frame ----
 
 re.on_frame(function()
     local ok, err = pcall(function()
         install()
+        install_desire_hook()
+        install_use_hook()
         state.frames = state.frames + 1
 
         if state.frames % 600 == 0 then state.buff_objs = nil end
@@ -1281,9 +1344,10 @@ re.on_frame(function()
             local monv = state.monster_state == true and "damaged"
                 or (state.monster_state == false and "full" or "?")
             trace(string.format(
-                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | trap=%s stun=%s para=%s",
+                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | ai=%d ours=%d desire=%d | trap=%s stun=%s para=%s",
                 tostring(state.hook_note), state.captures, buffv, monv,
                 state.fires, tostring(state.last_result),
+                state.uses_ai, state.uses_ours, state.desire_calls,
                 tostring(state.cond.trapped), tostring(state.cond.stunned),
                 tostring(state.cond.paralyzed)))
         end
@@ -1369,6 +1433,10 @@ local function draw_body()
 
     changed, state.cfg.auto_when_down =
         imgui.checkbox("When the buff runs out", state.cfg.auto_when_down)
+    if changed then save_config() end
+
+    changed, state.cfg.suppress_ai =
+        imgui.checkbox("Stop the Palico using it on its own", state.cfg.suppress_ai)
     if changed then save_config() end
 
     imgui.separator()
