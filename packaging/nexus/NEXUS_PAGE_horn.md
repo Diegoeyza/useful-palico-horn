@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.3
+# Nexus page — Useful Palico Horn v1.1.5
 
-Upload `dist/UsefulPalicoHorn-1.1.3.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.5.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -123,6 +123,16 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
+[b]1.1.5[/b]
+[list]
+[*]The buff state is read from every candidate object found in the Palico/hunter object graph, not a single fixed one, so the panel reflects the real buff.
+[/list]
+
+[b]1.1.4[/b]
+[list]
+[*]Diagnostic: log which buff methods the condition manager exposes.
+[/list]
+
 [b]1.1.3[/b]
 [list]
 [*]The quest-start shot waits ~4 s so the Palico can act; an early request is silently ignored by the game.
@@ -162,6 +172,12 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 **Changelog field:**
 
 ```
+1.1.5
+- The buff state is read from every candidate object found in the Palico/hunter object graph, not a single fixed one, so the panel reflects the real buff.
+
+1.1.4
+- Diagnostic: log which buff methods the condition manager exposes.
+
 1.1.3
 - The quest-start shot waits ~4 s so the Palico can act; an early request is silently ignored by the game.
 - The buff state object is re-resolved per quest, so the panel cannot report a stale "down".
@@ -182,10 +198,10 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 - Trap, stun and paralysis verified in game.
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.3.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.5.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.1.3
+- Version: 1.1.5
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)
