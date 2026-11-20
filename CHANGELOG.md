@@ -1,5 +1,19 @@
 # Changelog
 
+## Useful Palico Horn 1.1.6 — 2026-11-20
+
+`buff objects: 0` in the trace: the graph walk never left its roots.
+`array_len()` returns **0** for an object that is not a collection (the monster
+code relies on that), and `children_of` treated any non-nil result as "this is
+an array", so every node looked like an empty array and no fields were visited.
+
+- `children_of` now only takes the array path when the length is **> 0**.
+- Same guard for the player list lookup.
+
+This is the same class of bug as the other big ones in this mod: a sentinel
+value that means two different things (0 = empty vs 0 = not a collection).
+
+
 ## Useful Palico Horn 1.1.5 — 2026-11-20
 
 The buff state never left `down`, even while the horn played. The diagnostic

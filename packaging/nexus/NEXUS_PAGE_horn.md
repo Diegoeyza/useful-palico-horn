@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.5
+# Nexus page — Useful Palico Horn v1.1.6
 
-Upload `dist/UsefulPalicoHorn-1.1.5.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.6.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -123,6 +123,11 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
+[b]1.1.6[/b]
+[list]
+[*]Fixed the buff state reader: the object walk treated every object as an empty list, so it never found the buff.
+[/list]
+
 [b]1.1.5[/b]
 [list]
 [*]The buff state is read from every candidate object found in the Palico/hunter object graph, not a single fixed one, so the panel reflects the real buff.
@@ -172,6 +177,9 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 **Changelog field:**
 
 ```
+1.1.6
+- Fixed the buff state reader: the object walk treated every object as an empty list, so it never found the buff.
+
 1.1.5
 - The buff state is read from every candidate object found in the Palico/hunter object graph, not a single fixed one, so the panel reflects the real buff.
 
@@ -198,10 +206,10 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 - Trap, stun and paralysis verified in game.
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.5.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.6.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.1.5
+- Version: 1.1.6
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)
