@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -618,7 +618,7 @@ end
 local function children_of(obj)
     local out = {}
     local n = array_len(obj)
-    if n ~= nil then
+    if n ~= nil and n > 0 then
         for i = 0, math.min(n - 1, 32) do
             local v = safe(function() return obj[i] end)
             if v ~= nil then out[#out + 1] = v end
@@ -642,7 +642,7 @@ local function local_hunter()
     local list = field_value(pm, "_InstancedPlayerList")
     if list ~= nil then
         local n = array_len(list)
-        if n ~= nil then
+        if n ~= nil and n > 0 then
             for i = 0, math.min(n - 1, 8) do
                 local p = safe(function() return list[i] end)
                 if p ~= nil then
