@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.6
+# Nexus page — Useful Palico Horn v1.1.8
 
-Upload `dist/UsefulPalicoHorn-1.1.6.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.8.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -59,7 +59,7 @@ The horn's own cooldown is [b]8 minutes (480 s)[/b].
 [*][b]Use the base game cooldown[/b] (default) applies it to every trigger.
 [*]The cooldown [b]resets at the start of every quest[/b], like the game's own.
 [*]Untick it to type any value you like, including 0.
-[*][b]First hit and quest start are never held by the cooldown.[/b] They are one-shot events; spending 8 minutes on them would block the trap, stun or paralysis trigger later in the hunt.
+[*][b]The cooldown applies to every trigger, without exception.[/b] First hit and quest start still get their chance because the cooldown resets at the start of each quest; they just do not override a running timer.
 [*]When a trigger is held, the panel says so ([i]held by cooldown: 431 s left[/i]) instead of silently doing nothing.
 [/list]
 
@@ -206,7 +206,7 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 - Trap, stun and paralysis verified in game.
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.6.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.8.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay

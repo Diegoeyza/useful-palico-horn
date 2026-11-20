@@ -31,11 +31,13 @@ quest** (the game recreates the Palico's tool each hunt, and the mod follows). "
 default) applies that to every trigger except two, or untick it to type any
 value you like.
 
-It applies to: hotkey, button, buff runs out, trapped / stunned / paralyzed.
-It never applies to: first hit and quest start.
+It applies to every trigger without exception: hotkey, button, first hit,
+quest start, buff runs out, trapped / stunned / paralyzed. Nothing fires while
+the countdown is running.
 
-Those two are one-shot events; spending an 8 minute cooldown on them would
-block the very triggers you care about later in the hunt.
+First hit and quest start still get their chance because the cooldown resets at
+the start of each quest. If you want more than one buff per quest, set a custom
+cooldown shorter than the base 8 minutes.
 
 Triggers
 --------

@@ -1,5 +1,16 @@
 # Changelog
 
+## Useful Palico Horn 1.1.8 — 2026-11-20
+
+User report: triggers still fired while the "next buff" countdown was running.
+
+- **One authoritative gate**: `fire()` refuses while `cooldown_left() > 0`,
+  whatever the trigger is. The first hit / quest start exemption is gone. Those
+  two still get their chance because the cooldown is reset at quest start; they
+  simply no longer override a running timer.
+- Panel says it plainly: "applies to every trigger below, without exception".
+
+
 ## Useful Palico Horn 1.1.7 — 2026-11-20
 
 Still `buff objects: 0` after 1.1.6. Three differences from the old counter's
