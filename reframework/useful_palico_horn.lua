@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.3"
+local VERSION = "1.1.4"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -86,6 +86,7 @@ local state = {
     confirm_at = nil,
     confirm_prev = nil,
     confirm_reason = nil,
+    diag_sig = nil,
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -624,6 +625,27 @@ local function resolve_condition()
     return cond
 end
 
+local function buff_diagnostic()
+    local cond = state.condition
+    if cond == nil then return "no condition object" end
+    local td = safe(function() return cond:get_type_definition() end)
+    if td == nil then return "no type" end
+    local parts = {}
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        local n = safe(function() return m:get_name() end)
+        if type(n) == "string" and safe(function() return m:get_num_params() end) == 0
+            and n:match("^is") then
+            local l = n:lower()
+            if l:find("attack") or l:find("defen") or l:find("horn") or l:find("icon") then
+                local v = safe(function() return m:call(cond) end)
+                parts[#parts + 1] = n .. "=" .. tostring(v)
+            end
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, " ")
+end
+
 local function read_buff()
     if state.condition == nil then state.condition = resolve_condition() end
     if state.condition == nil then state.buff = nil return nil end
@@ -1028,6 +1050,13 @@ re.on_frame(function()
 
         if state.frames % 600 == 0 then state.condition = nil end
         if state.frames % 15 == 0 then read_buff() end
+        if state.frames % 150 == 0 then
+            local diag = buff_diagnostic()
+            if diag ~= state.diag_sig then
+                state.diag_sig = diag
+                trace("buff diag: " .. diag)
+            end
+        end
         if state.frames % 30 == 0 then monster_scan() end
 
         if state.frames % 30 == 0 then
