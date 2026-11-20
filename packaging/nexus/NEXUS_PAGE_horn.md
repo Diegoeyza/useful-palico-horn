@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.1
+# Nexus page — Useful Palico Horn v1.1.2
 
-Upload `dist/UsefulPalicoHorn-1.1.1.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.2.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -57,6 +57,7 @@ The horn's own cooldown is [b]8 minutes (480 s)[/b].
 
 [list]
 [*][b]Use the base game cooldown[/b] (default) applies it to every trigger.
+[*]The cooldown [b]resets at the start of every quest[/b], like the game's own.
 [*]Untick it to type any value you like, including 0.
 [*][b]First hit and quest start are never held by the cooldown.[/b] They are one-shot events; spending 8 minutes on them would block the trap, stun or paralysis trigger later in the hunt.
 [*]When a trigger is held, the panel says so ([i]held by cooldown: 431 s left[/i]) instead of silently doing nothing.
@@ -122,6 +123,12 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
+[b]1.1.2[/b]
+[list]
+[*]The cooldown now resets at quest start, matching the game. Previously it carried over between hunts and could block the first triggers of the next quest.
+[*]Per-trigger 3 s debounce, so a flickering condition cannot fire the horn several times for one event.
+[/list]
+
 [b]1.1.1[/b]
 [list]
 [*]Change hotkey button: click it, hold the key you want, done. No file editing needed.
@@ -148,6 +155,10 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 **Changelog field:**
 
 ```
+1.1.2
+- The cooldown now resets at quest start, matching the game. Previously it carried over between hunts and could block the first triggers of the next quest.
+- Per-trigger 3 s debounce, so a flickering condition cannot fire the horn several times for one event.
+
 1.1.1
 - Change hotkey button: click it, hold the key you want, done. No file editing needed.
 
@@ -159,10 +170,10 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 - Trap, stun and paralysis verified in game.
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.1.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.2.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.1.1
+- Version: 1.1.2
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)

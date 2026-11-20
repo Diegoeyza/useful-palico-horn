@@ -1,5 +1,19 @@
 # Changelog
 
+## Useful Palico Horn 1.1.2 — 2026-11-20
+
+Reported by a user: with the cooldown on, the triggers never fired in a new hunt.
+
+- **The cooldown is now reset at quest start.** It was stored as a wall-clock
+  timestamp that survived quest changes, while the game recreates the Palico's
+  tool (and its own cooldown) every quest. Firing late in one hunt therefore
+  burned minutes of the next one, so "fire when the monster is paralyzed" never
+  got a chance. A `quest start (cooldown reset)` line is written to the trace.
+- **Per-trigger debounce (3 s).** With the cooldown off, a condition flag that
+  flickers true/false could fire the horn several times for one event. Each
+  trigger now has its own short latch.
+
+
 ## Useful Palico Horn 1.1.0 — 2026-11-19
 
 - **Renamed** from "Otomo Horn" to **Useful Palico Horn**. "Otomo" is the

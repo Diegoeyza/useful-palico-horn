@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -84,6 +84,7 @@ local state = {
     quest_start_pending = false,
     last_req_reason = nil,
     last_req_frame = nil,
+    reason_last = {},        -- per-trigger debounce
     dump_requested = false,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
@@ -1021,7 +1022,10 @@ re.on_frame(function()
             local playing = quest_playing()
             if playing ~= nil then
                 if state.was_playing == false and playing == true then
-                    trace("quest start")
+                    trace("quest start (cooldown reset)")
+                    state.last_fire_time = nil
+                    state.first_hit_done = false
+                    state.reason_last = {}
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                 end
                 if playing == false then
@@ -1096,13 +1100,21 @@ re.on_frame(function()
 
             local exempt = (reason == "first hit" or reason == "quest start")
             local left = cooldown_left()
-            if not exempt and left > 0 then
+
+            local last = state.reason_last[reason]
+            local since = last ~= nil and (state.frames - last) or 999999
+            if since < 180 then
+                state.last_result = string.format("%s debounced (%d s)", reason,
+                    math.floor(since / 60))
+                trace("debounced: " .. tostring(reason))
+            elseif not exempt and left > 0 then
                 state.last_result = string.format("held by cooldown: %d s left", left)
                 trace("held by cooldown: " .. tostring(reason))
             else
                 -- latch only on a real fire, otherwise "wait for the Palico to
                 -- act once" consumes the trigger forever
                 if fire(reason) then
+                    state.reason_last[reason] = state.frames
                     if reason == "first hit" then state.first_hit_done = true end
                     if reason == "quest start" then state.quest_start_pending = false end
                 end

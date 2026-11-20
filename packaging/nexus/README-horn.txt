@@ -26,7 +26,8 @@ Use
 
 Cooldown
 --------
-The horn's own cooldown is 8 minutes. "Use the base game cooldown" (on by
+The horn's own cooldown is 8 minutes, and it **resets at the start of every
+quest** (the game recreates the Palico's tool each hunt, and the mod follows). "Use the base game cooldown" (on by
 default) applies that to every trigger except two, or untick it to type any
 value you like.
 
