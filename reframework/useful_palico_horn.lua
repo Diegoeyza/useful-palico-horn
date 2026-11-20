@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.8"
+local VERSION = "1.1.9"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -84,9 +84,6 @@ local state = {
     was_playing = nil,
     quest_start_pending = false,
     quest_start_at = nil,
-    confirm_at = nil,
-    confirm_prev = nil,
-    confirm_reason = nil,
     diag_sig = nil,
     last_req_reason = nil,
     last_req_frame = nil,
@@ -1012,7 +1009,6 @@ local function fire(reason)
         return false
     end
 
-    local prev_fire_time = state.last_fire_time
     local self = safe(sdk.to_managed_object, state.self)
     local ok, ret = pcall(function()
         return state.method:call(self, HORN_ACTION, state.append)
@@ -1024,12 +1020,6 @@ local function fire(reason)
     state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
         or ("error: " .. tostring(ret))
     trace("fire #" .. state.fires .. " " .. tostring(reason) .. " -> " .. tostring(state.last_result))
-
-    if ok then
-        state.confirm_at = state.frames + 240   -- ~4 s for the buff to register
-        state.confirm_prev = prev_fire_time
-        state.confirm_reason = reason
-    end
     return ok
 end
 
@@ -1234,21 +1224,6 @@ re.on_frame(function()
                 state.pending_fire = what
                 state.pending_kind = "event"
             end
-        end
-
-        if state.confirm_at ~= nil and state.frames >= state.confirm_at then
-            local applied = state.buff == true
-            if not applied then
-                -- the action call succeeded but the game ignored it (usually the
-                -- Palico was not ready yet): do not spend the cooldown on it
-                state.last_fire_time = state.confirm_prev
-                state.last_result = "no buff - cooldown restored ("
-                    .. tostring(state.confirm_reason) .. ")"
-                trace("refunded: " .. tostring(state.confirm_reason))
-            end
-            state.confirm_at = nil
-            state.confirm_prev = nil
-            state.confirm_reason = nil
         end
 
         if state.dump_requested then

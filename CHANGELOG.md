@@ -1,5 +1,20 @@
 # Changelog
 
+## Useful Palico Horn 1.1.9 — 2026-11-20
+
+Reported: the horn could be used twice inside one quest, well under 8 minutes.
+
+That was the refund. When a fire produced no buff (the game's own cooldown
+refusing it while still playing the animation), the timer was restored and the
+next trigger fired again - a second doot with no buff.
+
+- **The timer starts when the animation is forced** and is never handed back.
+  The confirmation window and the refund are gone: one forced horn per cooldown
+  window, whatever the game does with it.
+- The reset at quest start is unchanged, so every hunt still starts ready.
+- Live buff state remains on the panel for information only.
+
+
 ## Useful Palico Horn 1.1.8 — 2026-11-20
 
 User report: triggers still fired while the "next buff" countdown was running.

@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.8
+# Nexus page — Useful Palico Horn v1.1.9
 
-Upload `dist/UsefulPalicoHorn-1.1.8.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.1.9.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -123,13 +123,13 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
-[b]1.1.8[/b] - first public release
+[b]1.1.9[/b] - first public release
 [list]
 [*]Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
 [*]Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
 [*]The cooldown resets at the start of each quest.
 [*]Change hotkey button in the panel (default .).
-[*]Live buff state (buff: UP / down). A fire the game ignores restores the cooldown instead of spending it.
+[*]Live buff state (buff: UP / down).
 [/list]
 
 [line]
@@ -146,15 +146,15 @@ Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.c
 **Changelog field:**
 
 ```
-1.1.8 - first public release
+1.1.9 - first public release
 - Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
 - Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
 - The cooldown resets at the start of each quest.
 - Change hotkey button in the panel (default .).
-- Live buff state (buff: UP / down). A fire the game ignores restores the cooldown instead of spending it.
+- Live buff state (buff: UP / down).
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.8.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.1.9.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
