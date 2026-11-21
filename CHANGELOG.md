@@ -1,5 +1,17 @@
 # Changelog
 
+## Useful Palico Horn 1.4.7 — 2026-11-20 (diagnostic)
+
+- Both known buff sources (`cHunterSkill:isOtomoMusicAttackUp` and the Palico
+  condition manager) read false while the buff icon is up, so neither is the
+  field the horn sets.
+- Added a **Dump buff state** button: while the buff is visibly up it writes
+  `reframework/data/useful_palico_horn_buff.json` with the hunter, status, skill
+  fields and their live values, the `_OtomoMusicSkillTimer` array, method
+  results, item-buff candidates and the Palico flags. One dump names the real
+  field.
+
+## Useful Palico Horn 1.4.6 — 2026-11-20
 ## Useful Palico Horn 1.4.6 — 2026-11-20
 
 - `PlayerManager:getMasterPlayer()` returns `app.cPlayerManageInfo`, not the

@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.6"
+local VERSION = "1.4.7"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -109,6 +109,7 @@ local state = {
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
     dump_requested = false,
+    dump_buff_requested = false,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
     monster_max = nil,
@@ -1238,6 +1239,126 @@ end
 
 -- ------------------------------------------------------------------ dump ----
 
+-- Live snapshot of everything that could carry the horn buff, written while the
+-- buff is visibly up. One read tells us which field actually moves.
+local function describe_value(v)
+    local t = type(v)
+    if v == nil then return nil end
+    if t == "number" or t == "boolean" or t == "string" then return v end
+    if safe(function() return sdk.is_managed_object(v) end) == true then
+        local td = safe(function() return v:get_type_definition() end)
+        return "obj:" .. tostring(td and safe(function() return td:get_full_name() end) or "?")
+    end
+    return "<" .. t .. ">"
+end
+
+local function array_values(obj, maxn)
+    if obj == nil then return nil end
+    local n = safe(function() return obj:get_Length() end)
+        or safe(function() return obj:get_Count() end)
+        or safe(function() return obj:get_Size() end)
+    if type(n) ~= "number" then return nil end
+    local out = {}
+    for i = 0, math.min(n - 1, maxn or 16) do
+        out[#out + 1] = describe_value(safe(function() return obj[i] end))
+    end
+    return out
+end
+
+local function dump_fields_into(into, label, obj)
+    if obj == nil then return end
+    local td = safe(function() return obj:get_type_definition() end)
+    if td == nil then return end
+    local rec = {
+        type = safe(function() return td:get_full_name() end),
+        fields = {},
+        methods = {},
+        arrays = {},
+    }
+    local walk, depth = td, 0
+    while walk ~= nil and depth < 6 do
+        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            if n ~= nil and rec.fields[n] == nil then
+                local v = safe(function() return f:get_data(obj) end)
+                rec.fields[n] = describe_value(v)
+                if safe(function() return sdk.is_managed_object(v) end) == true then
+                    local vals = array_values(v, 16)
+                    if vals ~= nil then rec.arrays[n] = vals end
+                end
+            end
+        end
+        walk = safe(function() return walk:get_parent_type() end)
+        depth = depth + 1
+    end
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        local n = safe(function() return m:get_name() end)
+        if n ~= nil and #n < 80 then
+            rec.methods[n] = safe(function() return m:get_num_params() end)
+        end
+    end
+    into[label] = rec
+end
+
+local function dump_buff_state()
+    local out = { at = os.time(), version = VERSION, objects = {}, calls = {} }
+    local hunter = local_hunter_character()
+
+    dump_fields_into(out.objects, "hunter", hunter)
+    local status = hunter and access(hunter, "Status") or nil
+    dump_fields_into(out.objects, "status", status)
+    local skill = hunter and getter(hunter, "get_HunterSkill") or nil
+    dump_fields_into(out.objects, "skill", skill)
+
+    if skill ~= nil then
+        out.otomo_music_timers = array_values(
+            field_value(skill, "_OtomoMusicSkillTimer"), 16)
+        for _, name in ipairs({ "isOtomoMusicAttackUp", "isOtomoMusicDefenceUp",
+                                "getOtomoMusicSkillTimer", "getMusicSkillRate",
+                                "getSkillOtomoPowerUpAttackRate" }) do
+            local m = method0(skill, name)
+            if m ~= nil then
+                out.calls[name .. "()"] =
+                    describe_value(safe(function() return m:call(skill) end))
+            end
+        end
+        local td = safe(function() return skill:get_type_definition() end)
+        for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+            if safe(function() return m:get_name() end) == "getOtomoMusicSkillTimer"
+                and safe(function() return m:get_num_params() end) == 1 then
+                for i = 0, 7 do
+                    out.calls["getOtomoMusicSkillTimer(" .. i .. ")"] =
+                        describe_value(safe(function() return m:call(skill, i) end))
+                end
+            end
+        end
+    end
+
+    for _, obj in ipairs({ hunter, status }) do
+        for _, name in ipairs({ "ItemBuff", "Buff", "Condition", "Conditions" }) do
+            local v = obj and access(obj, name) or nil
+            if v ~= nil then
+                dump_fields_into(out.objects, "hunter." .. name, v)
+            end
+        end
+    end
+
+    out.palico = { buff = palico_buff(), objects = {} }
+    for i, o in ipairs(state.buff_objs or {}) do
+        if not o then break end
+        local td = safe(function() return o:get_type_definition() end)
+        out.palico.objects[#out.palico.objects + 1] = {
+            index = i,
+            type = td and safe(function() return td:get_full_name() end) or "?",
+            active = obj_flag(o, "isActiveAttackUp"),
+            icon = obj_flag(o, "isEnableAttackUpIcon"),
+        }
+    end
+
+    pcall(json.dump_file, "useful_palico_horn_buff.json", out)
+    trace("buff state dumped")
+end
+
 local function dump_obj(label, obj)
     if obj == nil then return nil end
     local td = safe(function() return obj:get_type_definition() end)
@@ -1492,6 +1613,10 @@ re.on_frame(function()
             state.dump_requested = false
             dump_monster()
         end
+        if state.dump_buff_requested then
+            state.dump_buff_requested = false
+            dump_buff_state()
+        end
 
         -- keep-alive: buff down, gated by the global cooldown
         if state.cfg.auto_when_down and state.buff == false
@@ -1626,6 +1751,10 @@ local function draw_body()
     changed, state.cfg.block_ai_use =
         imgui.checkbox("Block the Palico's own horn use", state.cfg.block_ai_use)
     if changed then save_config() end
+
+    if imgui.button("Dump buff state (click while the buff is up)") then
+        state.dump_buff_requested = true
+    end
 
     imgui.separator()
     imgui.text("last: " .. tostring(state.last_result))
