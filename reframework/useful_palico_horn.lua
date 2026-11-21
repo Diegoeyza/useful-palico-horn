@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.3"
+local VERSION = "1.4.4"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -47,6 +47,7 @@ local METHOD_NAME = "setActionRequest"
 local VERIFY_TIMEOUT = 480     -- ~8 s to see the buff at all
 local VERIFY_HOLD = 120        -- ~2 s of it staying up
 local RETRY_FRAMES = 300       -- ~5 s before a cancelled trigger tries again
+local MAX_ATTEMPTS = 2         -- one fire plus one retry, then give up
 
 local state = {
     cfg = {
@@ -1118,7 +1119,7 @@ local function confirm_fire()
     local k = attempt_key(v.reason)
     local tries = k ~= nil and (state.tries[k] or 0) or 0
     if k == nil then return end
-    if tries >= 3 then
+    if tries >= MAX_ATTEMPTS then
         trace("giving up on " .. tostring(v.reason) .. " after "
             .. tostring(tries) .. " attempts")
         if v.reason == "first hit" then

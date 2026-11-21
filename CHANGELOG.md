@@ -1,5 +1,12 @@
 # Changelog
 
+## Useful Palico Horn 1.4.4 — 2026-11-20
+
+- Retry cap lowered to **2 fires per trigger** (the first attempt plus one
+  retry). If the buff still does not register after the retry, the trigger gives
+  up and the cooldown is not spent. `MAX_ATTEMPTS` in the script is the switch.
+
+## Useful Palico Horn 1.4.3 — 2026-11-20
 ## Useful Palico Horn 1.4.3 — 2026-11-20
 
 Reported on 1.1.8: console errors and an endless loading screen at quest end.
