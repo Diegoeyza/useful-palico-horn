@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.3.3"
+local VERSION = "1.3.4"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -43,7 +43,7 @@ local state = {
         hotkey = "599",          -- "." on this build: unused by the game
         min_interval_sec = 0.5,
         auto_when_down = false,
-        block_ai_use = true,
+        block_ai_use = false,
         use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
@@ -838,6 +838,7 @@ local function install()
     local hooked = 0
     for _, m in ipairs(list) do
         if safe(function() return m:get_num_params() end) == 2 then
+            local is_int_overload = first_param_is_int(m)
             local ok = pcall(function()
                 sdk.hook(m,
                     function(args)
@@ -847,7 +848,8 @@ local function install()
                         state.captured_at = state.frames
                         state.captures = state.captures + 1
 
-                        local id = safe(function() return sdk.to_int64(args[3]) end)
+                        local id = is_int_overload
+                            and safe(function() return sdk.to_int64(args[3]) end) or nil
                         if type(id) == "number" then
                             if state.ids[id] == nil then
                                 state.ids[id] = 0
