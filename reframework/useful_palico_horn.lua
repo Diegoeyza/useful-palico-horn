@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.8"
+local VERSION = "1.6.9"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -1362,31 +1362,59 @@ end
 
 local function tool_manager()
     if state.tool_manager ~= nil then return state.tool_manager end
+
+    local chars = {}
     local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
-    if om == nil then return nil end
-    local ctl = getter(om, "getMasterOtomoManagedControl")
-    if ctl == nil then return nil end
-    local info = field_value(ctl, "_OtomoManagedInfo")
-        or getter(ctl, "get_OtomoManagedInfo")
-    local char = info and field_value(info, "<Character>k__BackingField")
-    if char == nil then
-        char = walk_find(ctl, "OtomoCharacter", 2, 120)
+    if om ~= nil then
+        local ctl = getter(om, "getMasterOtomoManagedControl")
+        if ctl ~= nil then
+            local info = field_value(ctl, "_OtomoManagedInfo")
+                or getter(ctl, "get_OtomoManagedInfo")
+            local char = info and field_value(info, "<Character>k__BackingField")
+            if char == nil then
+                char = walk_find(ctl, "OtomoCharacter", 2, 120)
+            end
+            if char ~= nil then chars[#chars + 1] = char end
+        end
     end
-    if char == nil then return nil end
-    for _, name in ipairs({
+    if state.action_self ~= nil then
+        local act = safe(sdk.to_managed_object, state.action_self)
+        local char = act and field_value(act, "<Chara>k__BackingField")
+        if char ~= nil then chars[#chars + 1] = char end
+    end
+
+    local fields = {
         "_MiniCompUpdater_LateUpdate", "_MiniCompUpdater_AfterMotion",
         "_MiniCompUpdater_AfterAction", "_MiniCompUpdater_LateUpdateEnd",
         "_MiniCompUpdator_BeforeAction", "_Components",
-    }) do
-        local root = field_value(char, name)
-        if root ~= nil then
-            local m = walk_find(root, "otomoToolManager", 3, 300)
-            if m ~= nil then
-                state.tool_manager = m
-                trace("tool manager found via " .. name)
-                return m
+    }
+    local seen_types = {}
+    local tried = 0
+    for _, char in ipairs(chars) do
+        local td = safe(function() return char:get_type_definition() end)
+        local tn = td and safe(function() return td:get_full_name() end) or "?"
+        if not seen_types[tn] then
+            seen_types[tn] = true
+            trace("tool manager: character " .. tostring(tn))
+        end
+        for _, name in ipairs(fields) do
+            local root = field_value(char, name)
+            if root ~= nil then
+                tried = tried + 1
+                local m = walk_find(root, "otomoToolManager", 3, 300)
+                if m ~= nil then
+                    state.tool_manager = m
+                    state.tool_manager_path = name
+                    trace("tool manager found via " .. name)
+                    return m
+                end
             end
         end
+    end
+    if not state.tool_manager_missing then
+        state.tool_manager_missing = true
+        trace("tool manager: not found (chars=" .. tostring(#chars)
+            .. " roots=" .. tostring(tried) .. ")")
     end
     return nil
 end
@@ -2161,6 +2189,8 @@ local function release_world(why)
     state.tool_fields = nil
     state.tool_dumped = false
     state.tool_missing = nil
+    state.tool_manager_missing = nil
+    state.tool_manager_path = nil
     state.action_self = nil
     state.action_dumped = false
     state.type_forced = false

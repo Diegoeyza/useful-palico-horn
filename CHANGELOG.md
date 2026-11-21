@@ -1,5 +1,14 @@
 # Changelog
 
+## Useful Palico Horn 1.6.9 — 2026-11-21
+
+- The horn type now sticks (`_Type 1/1` before, after the write and after
+  `doEnter`), yet `cHunterAttackPower:get_AttackUpTimer()` stays `-1`: the
+  action plays ATKUP_L and the effect is still refused.
+- Tool manager lookup now also uses the action's `<Chara>` and logs the
+  character type / roots tried when it fails.
+
+## Useful Palico Horn 1.6.8 — 2026-11-21
 ## Useful Palico Horn 1.6.8 — 2026-11-21
 
 - The Attack-Up buff has a real numeric source: `cHunterAttackPower` exposes
