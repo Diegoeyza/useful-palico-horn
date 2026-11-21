@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.9"
+local VERSION = "1.7.0"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -162,9 +162,17 @@ local function clock()
     return os.date("%H:%M:%S")
 end
 
+-- Writes are deferred to the frame loop: json.dump_file on every trace line
+-- was a disk write several times a second and a real source of stutter.
 local function trace(line)
     state.trace[#state.trace + 1] = clock() .. " " .. line
     while #state.trace > 240 do table.remove(state.trace, 1) end
+    state.trace_dirty = true
+end
+
+local function flush_trace()
+    if not state.trace_dirty then return end
+    state.trace_dirty = false
     pcall(json.dump_file, TRACE_FILE, { version = VERSION, lines = state.trace })
 end
 
@@ -207,20 +215,37 @@ end
 
 -- ------------------------------------------------------------ reflection ----
 
+-- Reflection is expensive: type:get_methods() alone is ~600 entries on the
+-- hunter. Cache every method/field descriptor by type name so the per-frame
+-- readers do a table lookup instead of a scan.
+local method_cache = {}
+local field_cache = {}
+
+local function type_key(td)
+    return safe(function() return td:get_full_name() end) or tostring(td)
+end
+
 local function method0(obj, name)
     if obj == nil then return nil end
     local td = safe(function() return obj:get_type_definition() end)
-    local depth = 0
-    while td and depth < 8 do
-        for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+    if td == nil then return nil end
+    local per = method_cache[type_key(td)]
+    if per == nil then per = {} method_cache[type_key(td)] = per end
+    if per[name] ~= nil then return per[name] or nil end
+
+    local walk, depth = td, 0
+    while walk ~= nil and depth < 8 do
+        for _, m in ipairs(safe(function() return walk:get_methods() end) or {}) do
             if safe(function() return m:get_name() end) == name
                 and safe(function() return m:get_num_params() end) == 0 then
+                per[name] = m
                 return m
             end
         end
-        td = safe(function() return td:get_parent_type() end)
+        walk = safe(function() return walk:get_parent_type() end)
         depth = depth + 1
     end
+    per[name] = false
     return nil
 end
 
@@ -232,14 +257,23 @@ end
 
 local function field_descriptor(obj, name)
     local td = safe(function() return obj:get_type_definition() end)
-    local depth = 0
-    while td and depth < 8 do
-        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-            if safe(function() return f:get_name() end) == name then return f end
+    if td == nil then return nil end
+    local per = field_cache[type_key(td)]
+    if per == nil then per = {} field_cache[type_key(td)] = per end
+    if per[name] ~= nil then return per[name] or nil end
+
+    local walk, depth = td, 0
+    while walk ~= nil and depth < 8 do
+        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
+            if safe(function() return f:get_name() end) == name then
+                per[name] = f
+                return f
+            end
         end
-        td = safe(function() return td:get_parent_type() end)
+        walk = safe(function() return walk:get_parent_type() end)
         depth = depth + 1
     end
+    per[name] = false
     return nil
 end
 
@@ -282,18 +316,26 @@ local COND_IDS = {
 
 -- cEmModuleConditions:isActive(CONDITION) -> Boolean. nil means the method was
 -- not found, which is different from "not active".
+local cond_method_cache = {}
 local function condition_method_bool(cond, methodName, value)
     if cond == nil then return nil end
     local td = safe(function() return cond:get_type_definition() end)
     if td == nil then return nil end
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        if safe(function() return m:get_name() end) == methodName
-            and safe(function() return m:get_num_params() end) == 1 then
-            local ok, v = pcall(function() return m:call(cond, value) end)
-            if ok and type(v) == "boolean" then return v end
-            return nil
+    local key = type_key(td) .. "|" .. methodName
+    local m = cond_method_cache[key]
+    if m == nil then
+        for _, cand in ipairs(safe(function() return td:get_methods() end) or {}) do
+            if safe(function() return cand:get_name() end) == methodName
+                and safe(function() return cand:get_num_params() end) == 1 then
+                m = cand
+                break
+            end
         end
+        cond_method_cache[key] = m or false
     end
+    if m == false then return nil end
+    local ok, v = pcall(function() return m:call(cond, value) end)
+    if ok and type(v) == "boolean" then return v end
     return nil
 end
 
@@ -1362,6 +1404,9 @@ end
 
 local function tool_manager()
     if state.tool_manager ~= nil then return state.tool_manager end
+    if state.tool_retry_at ~= nil and state.frames < state.tool_retry_at then
+        return nil
+    end
 
     local chars = {}
     local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
@@ -1411,6 +1456,7 @@ local function tool_manager()
             end
         end
     end
+    state.tool_retry_at = state.frames + 1800
     if not state.tool_manager_missing then
         state.tool_manager_missing = true
         trace("tool manager: not found (chars=" .. tostring(#chars)
@@ -1760,7 +1806,10 @@ local function confirm_fire()
     state.last_result = string.format(
         "fire did not land (%s), cooldown not used", v.reason)
     trace("fire not confirmed: " .. tostring(v.reason) .. " - cooldown not used")
-    dump_buff_state("fire not confirmed: " .. tostring(v.reason))
+    if not state.dump_fire_done then
+        state.dump_fire_done = true
+        dump_buff_state("fire not confirmed: " .. tostring(v.reason))
+    end
 
     local k = attempt_key(v.reason)
     local tries = k ~= nil and (state.tries[k] or 0) or 0
@@ -2228,6 +2277,7 @@ re.on_frame(function()
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                     state.quest_start_at = state.frames + 240   -- ~4 s settle
                     state.dump_at = state.frames + 360          -- baseline ~6 s
+                    state.dump_fire_done = false
                 end
                 if playing == false then
                     state.quest_start_pending = false
@@ -2239,18 +2289,18 @@ re.on_frame(function()
 
         if state.playing == true then
             if state.frames % 600 == 0 then state.buff_objs = nil end
-            if state.frames % 15 == 0 then read_buff() end
-            if state.frames % 150 == 0 then
+            if state.frames % 30 == 0 then read_buff() end
+            if state.frames % 300 == 0 then
                 local diag = buff_diagnostic()
                 if diag ~= state.diag_sig then
                     state.diag_sig = diag
                     trace("buff diag: " .. diag)
                 end
             end
-            if state.frames % 30 == 0 then monster_scan() end
+            if state.frames % 60 == 0 then monster_scan() end
         end
 
-        if state.frames % 60 == 0 then
+        if state.frames % 300 == 0 then
             tool_scan()
             if not state.action_dumped and state.action_self ~= nil then
                 local act = safe(sdk.to_managed_object, state.action_self)
@@ -2340,6 +2390,7 @@ re.on_frame(function()
             end
         end
 
+        if state.frames % 30 == 0 then flush_trace() end
         if state.frames % 300 == 0 then
             local buffv = state.buff == true and "UP"
                 or (state.buff == false and "down" or "?")

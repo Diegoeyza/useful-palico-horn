@@ -1,5 +1,21 @@
 # Changelog
 
+## Useful Palico Horn 1.7.0 — 2026-11-21
+
+Stutter pass. The diagnostic builds were doing far too much work per frame:
+
+- `trace()` wrote the whole 240-line JSON to disk on **every** log line, several
+  times a second. Writes are now coalesced and flushed at most twice a second.
+- Every method/field lookup scanned the type (the hunter has ~600 methods) on
+  every read, 4x a second. Method and field descriptors are cached by type.
+  Condition method lookups are cached too.
+- Buff read 4 Hz -> 1 Hz; monster scan 1 Hz -> 0.5 Hz; tool scan 1 Hz -> 0.2 Hz;
+  buff diagnostic 3 s -> 5 s.
+- A failed tool-manager walk retried every second; it now backs off 30 s.
+- The deep candidate scan / buff dump runs once per quest on a failed fire
+  instead of on every failed fire.
+
+## Useful Palico Horn 1.6.9 — 2026-11-21
 ## Useful Palico Horn 1.6.9 — 2026-11-21
 
 - The horn type now sticks (`_Type 1/1` before, after the write and after
