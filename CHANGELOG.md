@@ -1,5 +1,15 @@
 # Changelog
 
+## Useful Palico Horn 1.5.1 — 2026-11-20 (diagnostic)
+
+- The tool object captured from the AI's evaluation exposes no primitive fields,
+  so it is dumped in full (type + every field with its declared type/value).
+- Added a read-only hook on `app.OtomoCommonAction.cUseHorn:useHornActionDoEnter`
+  (the method PalicoMod rewrites) and dumps the action object when it runs. That
+  object carries the horn type the game is actually playing, so it answers
+  whether the Attack-Up horn or another horn is equipped.
+
+## Useful Palico Horn 1.5.0 — 2026-11-20
 ## Useful Palico Horn 1.5.0 — 2026-11-20
 
 A clean 1.1.8 also stops producing the buff, so the game is refusing the horn,

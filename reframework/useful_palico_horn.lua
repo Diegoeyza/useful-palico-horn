@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.5.0"
+local VERSION = "1.5.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -70,6 +70,11 @@ local state = {
     tool_hook = "not tried",
     tool_self = nil,
     tool_fields = nil,
+    tool_dumped = false,
+    tool_type = nil,
+    action_hook = "not tried",
+    action_self = nil,
+    action_dumped = false,
     method = nil,
     method_desc = nil,
 
@@ -995,6 +1000,60 @@ local function install_tool_hook()
     trace("tool hook: " .. state.tool_hook)
 end
 
+-- Dump every field of an object once, with its declared type and value. This is
+-- how the horn tool and the cUseHorn action reveal what the game actually has
+-- equipped / is playing.
+local function trace_object(label, obj)
+    local td = safe(function() return obj:get_type_definition() end)
+    if td == nil then
+        trace(label .. ": no type")
+        return
+    end
+    trace(label .. ": " .. tostring(safe(function() return td:get_full_name() end)))
+    local walk, depth = td, 0
+    local parts = {}
+    while walk ~= nil and depth < 6 do
+        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            local ft = safe(function() return f:get_type() end)
+            local tn = ft and safe(function() return ft:get_full_name() end) or "?"
+            local v = safe(function() return f:get_data(obj) end)
+            local vs = ""
+            if type(v) == "number" then vs = string.format("%.2f", v)
+            elseif type(v) == "boolean" or type(v) == "string" then vs = tostring(v) end
+            parts[#parts + 1] = tostring(n) .. "(" .. tostring(tn) .. ")=" .. vs
+        end
+        walk = safe(function() return walk:get_parent_type() end)
+        depth = depth + 1
+    end
+    trace(label .. " fields: " .. table.concat(parts, " "))
+end
+
+local function install_action_hook()
+    if state.action_hook ~= "not tried" then return end
+    local td = safe(sdk.find_type_definition, "app.OtomoCommonAction.cUseHorn")
+    if td == nil then
+        state.action_hook = "type not found"
+        trace("action hook: " .. state.action_hook)
+        return
+    end
+    local m = safe(function() return td:get_method("useHornActionDoEnter") end)
+    if m == nil then
+        state.action_hook = "method not found"
+        trace("action hook: " .. state.action_hook)
+        return
+    end
+    local ok = pcall(function()
+        sdk.hook(m, function(args)
+            if args ~= nil and args[2] ~= nil then
+                state.action_self = args[2]
+            end
+        end, function(retval) return retval end)
+    end)
+    state.action_hook = ok and "installed" or "hook failed"
+    trace("action hook: " .. state.action_hook)
+end
+
 local function tool_state()
     if state.tool_self == nil then return nil end
     return safe(sdk.to_managed_object, state.tool_self)
@@ -1023,6 +1082,10 @@ end
 local function tool_scan()
     local obj = tool_state()
     if obj == nil then return end
+    if not state.tool_dumped then
+        state.tool_dumped = true
+        trace_object("tool object", obj)
+    end
     local fields = tool_fields_of(obj)
     local prev = state.tool_fields
     state.tool_fields = fields
@@ -1677,6 +1740,9 @@ local function release_world(why)
     state.dump_at = nil
     state.tool_self = nil
     state.tool_fields = nil
+    state.tool_dumped = false
+    state.action_self = nil
+    state.action_dumped = false
     state.diag_sig = nil
     pcall(function() collectgarbage("collect") end)
     trace("world released (" .. tostring(why) .. ")")
@@ -1686,6 +1752,7 @@ re.on_frame(function()
     local ok, err = pcall(function()
         install()
         install_tool_hook()
+        install_action_hook()
         state.frames = state.frames + 1
 
         -- quest state first: the world objects are released the moment the
@@ -1730,7 +1797,16 @@ re.on_frame(function()
             if state.frames % 30 == 0 then monster_scan() end
         end
 
-        if state.frames % 60 == 0 then tool_scan() end
+        if state.frames % 60 == 0 then
+            tool_scan()
+            if not state.action_dumped and state.action_self ~= nil then
+                local act = safe(sdk.to_managed_object, state.action_self)
+                if act ~= nil then
+                    state.action_dumped = true
+                    trace_object("horn action", act)
+                end
+            end
+        end
         confirm_fire()
         if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 
