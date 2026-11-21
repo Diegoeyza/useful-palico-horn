@@ -1,5 +1,21 @@
 # Changelog
 
+## Useful Palico Horn 1.4.3 — 2026-11-20
+
+Reported on 1.1.8: console errors and an endless loading screen at quest end.
+
+- The mod releases every game object it holds the moment a quest ends
+  (`world released (quest end)` in the trace) and forces a Lua GC. REFramework
+  pins managed objects that Lua still references; the Palico's condition
+  manager and the monster chain were kept across the quest transition, which
+  can keep the old scene from being destroyed.
+- Nothing touches the world outside a quest: the buff walk, monster scan and
+  condition reads only run while `IsPlayingQuest` is true, so the mod no longer
+  probes objects while the scene is being torn down.
+- Frame/draw errors are logged at most 3 times, then once every 600
+  occurrences, so one persistent error cannot flood the console.
+
+## Useful Palico Horn 1.4.2 — 2026-11-20
 ## Useful Palico Horn 1.4.2 — 2026-11-20
 
 The cooldown is only spent when the buff actually lands.

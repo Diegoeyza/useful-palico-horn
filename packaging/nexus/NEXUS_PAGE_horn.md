@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.4.2
+# Nexus page — Useful Palico Horn v1.4.3
 
-Upload `dist/UsefulPalicoHorn-1.4.2.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.4.3.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -129,7 +129,12 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
-[b]1.4.2[/b] - first public release
+[b]1.4.3[/b] - first public release
+[list]
+[*]Releases all game objects when a quest ends and does not read the world outside a quest, fixing the endless loading screen and the console errors reported on 1.1.8.
+[/list]
+
+[b]1.4.2[/b]
 [list]
 [*]Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
 [*]Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
@@ -153,7 +158,8 @@ Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.c
 **Changelog field:**
 
 ```
-1.4.2 - first public release
+1.4.3 - first public release
+- Releases all game objects when a quest ends and does not read the world outside a quest, fixing the endless loading screen and the console errors reported on 1.1.8.
 - Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
 - Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
 - The cooldown resets at the start of each quest, and only starts once the buff is confirmed. A roar-cancelled horn or a request sent before the quest loaded is refunded, and the trigger retries.
@@ -162,10 +168,10 @@ Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.c
 - Live buff state (buff: UP / down).
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.4.2.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.4.3.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.4.2
+- Version: 1.4.3
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)

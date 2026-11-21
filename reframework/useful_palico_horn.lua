@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.2"
+local VERSION = "1.4.3"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -94,6 +94,9 @@ local state = {
     cond_sig = nil,
     scan = nil,              -- { started = frame } while binding a hotkey
     was_playing = nil,
+    playing = nil,
+    errors = 0,
+    draw_errors = 0,
     quest_start_pending = false,
     quest_start_at = nil,
     diag_sig = nil,
@@ -1297,44 +1300,83 @@ end
 
 -- ----------------------------------------------------------------- frame ----
 
+-- REFramework pins managed objects that Lua still references. Holding the
+-- Palico's condition manager or the monster chain across a quest end keeps the
+-- old scene alive, which is what leaves the loading screen hanging; probing
+-- those objects while the scene tears down is what fills the console with
+-- errors. Drop every world reference the moment the quest is over.
+local function release_world(why)
+    state.self = nil
+    state.append = nil
+    state.buff_objs = nil
+    state.buff = nil
+    state.buff_checked = 0
+    state.boss_ctx, state.boss_em = nil, nil
+    state.boss_chara, state.boss_basic, state.boss_status = nil, nil, nil
+    state.boss_modules = {}
+    state.status_type = nil
+    state.cond = { trapped = nil, stunned = nil, paralyzed = nil }
+    state.cond_prev = {}
+    state.cond_sig = nil
+    state.cond_logged = false
+    state.monster_state, state.monster_hp, state.monster_max = nil, nil, nil
+    state.monster_note = "-"
+    state.chain_logged = false
+    state.verify = nil
+    state.pending_fire = nil
+    state.pending_kind = nil
+    state.diag_sig = nil
+    pcall(function() collectgarbage("collect") end)
+    trace("world released (" .. tostring(why) .. ")")
+end
+
 re.on_frame(function()
     local ok, err = pcall(function()
         install()
         state.frames = state.frames + 1
 
-        if state.frames % 600 == 0 then state.buff_objs = nil end
-        if state.frames % 15 == 0 then read_buff() end
-        confirm_fire()
-        if state.frames % 150 == 0 then
-            local diag = buff_diagnostic()
-            if diag ~= state.diag_sig then
-                state.diag_sig = diag
-                trace("buff diag: " .. diag)
-            end
-        end
-        if state.frames % 30 == 0 then monster_scan() end
-
+        -- quest state first: the world objects are released the moment the
+        -- quest ends, and nothing below may probe them while it is not running
         if state.frames % 30 == 0 then
             local playing = quest_playing()
             if playing ~= nil then
+                if playing == false and state.playing == true then
+                    release_world("quest end")
+                end
                 if state.was_playing == false and playing == true then
                     trace("quest start (cooldown reset)")
                     state.last_fire_time = nil
                     state.first_hit_done = false
                     state.reason_last = {}
+                    state.tries = { first_hit = 0, quest_start = 0 }
                     state.buff_objs = nil
                     state.verify = nil
                     state.retry_at = 0
-                    state.tries = { first_hit = 0, quest_start = 0 }
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                     state.quest_start_at = state.frames + 240   -- ~4 s settle
                 end
                 if playing == false then
                     state.quest_start_pending = false
                 end
+                state.playing = playing
                 state.was_playing = playing
             end
         end
+
+        if state.playing == true then
+            if state.frames % 600 == 0 then state.buff_objs = nil end
+            if state.frames % 15 == 0 then read_buff() end
+            if state.frames % 150 == 0 then
+                local diag = buff_diagnostic()
+                if diag ~= state.diag_sig then
+                    state.diag_sig = diag
+                    trace("buff diag: " .. diag)
+                end
+            end
+            if state.frames % 30 == 0 then monster_scan() end
+        end
+
+        confirm_fire()
         if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 
         local bind_blocked = state.bind_block_until ~= nil
@@ -1420,7 +1462,12 @@ re.on_frame(function()
                 tostring(state.cond.paralyzed)))
         end
     end)
-    if not ok then log.info(TAG .. " frame error: " .. tostring(err)) end
+    if not ok then
+        state.errors = (state.errors or 0) + 1
+        if state.errors <= 3 or state.errors % 600 == 0 then
+            log.info(TAG .. " frame error #" .. state.errors .. ": " .. tostring(err))
+        end
+    end
 end)
 
 -- -------------------------------------------------------------------- ui ----
@@ -1530,7 +1577,12 @@ re.on_draw_ui(function()
     if not imgui.tree_node("Useful Palico Horn v" .. VERSION) then return end
     local ok, err = pcall(draw_body)
     safe(function() imgui.tree_pop() end)
-    if not ok then log.info(TAG .. " draw error: " .. tostring(err)) end
+    if not ok then
+        state.draw_errors = (state.draw_errors or 0) + 1
+        if state.draw_errors <= 3 or state.draw_errors % 600 == 0 then
+            log.info(TAG .. " draw error #" .. state.draw_errors .. ": " .. tostring(err))
+        end
+    end
 end)
 
 load_config()
