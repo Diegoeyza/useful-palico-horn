@@ -1,5 +1,13 @@
 # Changelog
 
+## Useful Palico Horn 1.6.7 — 2026-11-21
+
+- Field-name writes cannot reach `Nullable<enum>`. Write its raw bytes instead,
+  exactly like PalicoMod: `hasValue = 1` at offset 0, `value = 1` at offset 4,
+  then hand the `ValueType` back through `Field::set_data`, `set_field` or
+  `sdk.set_native_field`. Each is verified with `read_byte/read_dword`.
+
+## Useful Palico Horn 1.6.6 — 2026-11-21
 ## Useful Palico Horn 1.6.6 — 2026-11-21
 
 - `obj:set_field("_Type", 1)` returns true without writing (read-back is

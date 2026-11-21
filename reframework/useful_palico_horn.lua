@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.6"
+local VERSION = "1.6.7"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -1184,11 +1184,51 @@ local function install_action_hook()
                             state.type_before = true
                             trace("_Type before: " .. tostring(hv0) .. "/" .. tostring(v0))
                         end
+                        -- REFramework's ValueType supports raw writes, and
+                        -- Nullable<T> is { bool hasValue; T value } in memory;
+                        -- PalicoMod writes byte 1 at 0 and int 1 at 4.
+                        local function raw_nullable(target)
+                            local dt = safe(function() return f:get_type() end)
+                            if dt == nil then return nil end
+                            local vt = safe(function() return f:get_data(obj) end)
+                            if vt == nil then
+                                vt = safe(function() return ValueType.new(dt) end)
+                            end
+                            if vt == nil then return nil end
+                            local a = pcall(function() vt:write_byte(0, 1) end)
+                            local b = pcall(function() vt:write_dword(4, target) end)
+                            if not (a and b) then return nil end
+                            return vt
+                        end
+
                         local function stuck()
                             local hv, v = nullable_state(obj, "_Type")
-                            return hv == true and v == 1
+                            if hv == true and v == 1 then return true end
+                            -- fall back to raw read-back through the ValueType
+                            local vt = safe(function() return f:get_data(obj) end)
+                            if vt == nil then return false end
+                            local b = safe(function() return vt:read_byte(0) end)
+                            local d = safe(function() return vt:read_dword(4) end)
+                            return (b ~= nil and b ~= 0) and d == 1
                         end
                         local how = nil
+                        -- 0) raw nullable bytes, then hand the ValueType back
+                        local vt = raw_nullable(1)
+                        if vt ~= nil then
+                            pcall(function() f:set_data(obj, vt) end)
+                            if stuck() then how = "raw_set_data" end
+                            if how == nil then
+                                safe(function() obj:set_field("_Type", vt) end)
+                                if stuck() then how = "raw_set_field" end
+                            end
+                            if how == nil then
+                                pcall(function()
+                                    sdk.set_native_field(obj, obj:get_type_definition(),
+                                        "_Type", vt)
+                                end)
+                                if stuck() then how = "raw_native" end
+                            end
+                        end
                         -- every attempt is verified by reading the field back;
                         -- set_field returns true without writing here
                         if how == nil then
