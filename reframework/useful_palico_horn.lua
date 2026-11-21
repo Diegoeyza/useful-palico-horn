@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.1"
+local VERSION = "1.6.2"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -78,6 +78,7 @@ local state = {
     action_hook = "not tried",
     action_self = nil,
     action_dumped = false,
+    type_forced = false,
     method = nil,
     method_desc = nil,
 
@@ -1077,6 +1078,9 @@ local function trace_object(label, obj)
     trace(label .. " fields: " .. table.concat(parts, " "))
 end
 
+-- PalicoMod forces the action's `_Type` field to 1 in useHornActionDoEnter.
+-- That field selects which horn the action plays; without it the forced
+-- cUseHorn can play a horn that does not apply Attack Up.
 local function install_action_hook()
     if state.action_hook ~= "not tried" then return end
     local td = safe(sdk.find_type_definition, "app.OtomoCommonAction.cUseHorn")
@@ -1085,26 +1089,51 @@ local function install_action_hook()
         trace("action hook: " .. state.action_hook)
         return
     end
-    local m = nil
-    for _, cand in ipairs(safe(function() return td:get_methods() end) or {}) do
-        if safe(function() return cand:get_name() end) == "useHornActionDoEnter" then
-            m = cand
-            break
+
+    local parts = {}
+    local walk, depth = td, 0
+    while walk ~= nil and depth < 6 do
+        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            local ft = safe(function() return f:get_type() end)
+            local tn = ft and safe(function() return ft:get_full_name() end) or "?"
+            parts[#parts + 1] = tostring(n) .. "(" .. tostring(tn) .. ")"
         end
+        walk = safe(function() return walk:get_parent_type() end)
+        depth = depth + 1
     end
-    if m == nil then
+    trace("cUseHorn fields: " .. table.concat(parts, " "))
+
+    local list = {}
+    collect(td, "useHornActionDoEnter", list, 0)
+    if #list == 0 then
         state.action_hook = "method not found"
         trace("action hook: " .. state.action_hook)
         return
     end
-    local ok = pcall(function()
-        sdk.hook(m, function(args)
-            if args ~= nil and args[2] ~= nil then
+
+    local ok = false
+    for _, m in ipairs(list) do
+        local hooked = pcall(function()
+            sdk.hook(m, function(args)
+                if args == nil or args[2] == nil then return end
                 state.action_self = args[2]
-            end
-        end, function(retval) return retval end)
-    end)
-    state.action_hook = ok and "installed" or "hook failed"
+                if state.verify ~= nil then
+                    local obj = safe(sdk.to_managed_object, args[2])
+                    local f = obj and field_descriptor(obj, "_Type")
+                    if f ~= nil then
+                        local wrote = pcall(function() return f:set_data(obj, 1) end)
+                        if not state.type_forced then
+                            state.type_forced = true
+                            trace("forced horn _Type=1: " .. tostring(wrote))
+                        end
+                    end
+                end
+            end, function(retval) return retval end)
+        end)
+        if hooked then ok = true end
+    end
+    state.action_hook = ok and ("installed " .. #list) or "hook failed"
     trace("action hook: " .. state.action_hook)
 end
 
@@ -1954,6 +1983,7 @@ local function release_world(why)
     state.tool_missing = nil
     state.action_self = nil
     state.action_dumped = false
+    state.type_forced = false
     state.diag_sig = nil
     pcall(function() collectgarbage("collect") end)
     trace("world released (" .. tostring(why) .. ")")

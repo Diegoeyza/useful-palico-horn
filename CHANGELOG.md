@@ -1,5 +1,19 @@
 # Changelog
 
+## Useful Palico Horn 1.6.2 — 2026-11-21
+
+PalicoMod (Nexus 627) does one thing we were missing, visible in its
+disassembly: in `app.OtomoCommonAction.cUseHorn.useHornActionDoEnter` it writes
+the action's **`_Type`** field to `1` ("Overwriting horn type"). That field
+selects which horn the action plays, so forcing `cUseHorn` through
+`setActionRequest` alone does not guarantee the Attack-Up horn.
+
+- Hook `useHornActionDoEnter` (walking the type hierarchy - a direct
+  `get_method`/`get_methods` lookup misses it) and set `_Type = 1` while a fire
+  is pending.
+- Log the type's fields at install and `forced horn _Type=1: true/false`.
+
+## Useful Palico Horn 1.6.1 — 2026-11-21
 ## Useful Palico Horn 1.6.0 — 2026-11-21
 
 - Reads the runtime horn tool through the path Otomo Tools uses:
