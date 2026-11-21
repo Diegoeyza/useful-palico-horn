@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.5.3"
+local VERSION = "1.6.0"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -68,6 +68,8 @@ local state = {
     frames = 0,
     hook_note = "not tried",
     tool_hook = "not tried",
+    tool_manager = nil,
+    tool_values = nil,
     tool_self = nil,
     tool_fields = nil,
     tool_dumped = false,
@@ -1101,6 +1103,136 @@ local function install_action_hook()
     trace("action hook: " .. state.action_hook)
 end
 
+-- The runtime horn tool (the object that owns the game's cooldown) is not
+-- reachable from the character directly. Otomo Tools found it through the
+-- character's mini-component updaters -> mcOtomoToolManager -> the tool class
+-- for the HORN_ATKUP enum value; the same path is used here.
+local function field_children(obj)
+    local out = {}
+    local td = safe(function() return obj:get_type_definition() end)
+    local depth = 0
+    while td ~= nil and depth < 5 do
+        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+            if safe(function() return f:is_static() end) ~= true then
+                local name = safe(function() return f:get_name() end)
+                local v = safe(function() return f:get_data(obj) end)
+                if name ~= nil and v ~= nil then
+                    out[#out + 1] = { key = name, value = v }
+                end
+            end
+        end
+        td = safe(function() return td:get_parent_type() end)
+        depth = depth + 1
+    end
+    return out
+end
+
+local function walk_find(root, pattern, maxDepth, maxNodes)
+    if root == nil then return nil end
+    local queue = { { obj = root, depth = 0 } }
+    local seen = { [root] = true }
+    local nodes, head, tail = 0, 1, 1
+    maxDepth = maxDepth or 3
+    maxNodes = maxNodes or 300
+    while head <= tail and nodes < maxNodes do
+        local it = queue[head]
+        queue[head] = nil
+        head = head + 1
+        nodes = nodes + 1
+        local td = safe(function() return it.obj:get_type_definition() end)
+        local tn = td and safe(function() return td:get_full_name() end) or nil
+        if type(tn) == "string" and tn:lower():find(pattern:lower(), 1, true) then
+            return it.obj
+        end
+        if it.depth < maxDepth then
+            for _, k in ipairs(field_children(it.obj)) do
+                if safe(function() return sdk.is_managed_object(k.value) end) == true
+                    and not seen[k.value] then
+                    seen[k.value] = true
+                    tail = tail + 1
+                    queue[tail] = { obj = k.value, depth = it.depth + 1 }
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function tool_manager()
+    if state.tool_manager ~= nil then return state.tool_manager end
+    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
+    if om == nil then return nil end
+    local ctl = getter(om, "getMasterOtomoManagedControl")
+    if ctl == nil then return nil end
+    local info = field_value(ctl, "_OtomoManagedInfo")
+        or getter(ctl, "get_OtomoManagedInfo")
+    local char = info and field_value(info, "<Character>k__BackingField")
+    if char == nil then return nil end
+    for _, name in ipairs({
+        "_MiniCompUpdater_LateUpdate", "_MiniCompUpdater_AfterMotion",
+        "_MiniCompUpdater_AfterAction", "_MiniCompUpdater_LateUpdateEnd",
+        "_MiniCompUpdator_BeforeAction", "_Components",
+    }) do
+        local root = field_value(char, name)
+        if root ~= nil then
+            local m = walk_find(root, "otomoToolManager", 3, 300)
+            if m ~= nil then
+                state.tool_manager = m
+                trace("tool manager found via " .. name)
+                return m
+            end
+        end
+    end
+    return nil
+end
+
+local function tool_enum()
+    if state.tool_values ~= nil then return state.tool_values end
+    for _, short in ipairs({ "USE_OTOMO_TOOL_TYPE", "OTOMO_TOOL_TYPE" }) do
+        local tn = nil
+        for _, c in ipairs({ "app.OtomoDef." .. short, "app." .. short, short }) do
+            if safe(sdk.find_type_definition, c) ~= nil then tn = c break end
+        end
+        if tn ~= nil then
+            local td = safe(sdk.find_type_definition, tn)
+            local vals = {}
+            for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+                if safe(function() return f:is_static() end) == true then
+                    local n = safe(function() return f:get_name() end)
+                    local v = safe(function() return f:get_data(nil) end)
+                    if n ~= nil and type(v) == "number" then vals[n] = v end
+                end
+            end
+            if next(vals) ~= nil then
+                state.tool_values = vals
+                return vals
+            end
+        end
+    end
+    return nil
+end
+
+local function horn_tool()
+    local vals = tool_enum()
+    if vals == nil then return nil end
+    local value = nil
+    for name, v in pairs(vals) do
+        if name:find("HORN_ATKUP", 1, true) then value = v break end
+    end
+    if value == nil then return nil end
+    local mgr = tool_manager()
+    if mgr == nil then return nil end
+    local td = safe(function() return mgr:get_type_definition() end)
+    if td == nil then return nil end
+    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+        if safe(function() return m:get_name() end) == "getOtomoToolManagedClass"
+            and safe(function() return m:get_num_params() end) == 1 then
+            return safe(function() return m:call(mgr, value) end)
+        end
+    end
+    return nil
+end
+
 local function tool_state()
     if state.tool_self == nil then return nil end
     return safe(sdk.to_managed_object, state.tool_self)
@@ -1127,7 +1259,7 @@ local function tool_fields_of(obj)
 end
 
 local function tool_scan()
-    local obj = tool_state()
+    local obj = horn_tool() or tool_state()
     if obj == nil then return end
     if not state.tool_dumped then
         state.tool_dumped = true
@@ -1799,6 +1931,7 @@ local function release_world(why)
     state.pending_kind = nil
     state.dump_at = nil
     state.tool_self = nil
+    state.tool_manager = nil
     state.tool_fields = nil
     state.tool_dumped = false
     state.action_self = nil

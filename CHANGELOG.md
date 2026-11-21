@@ -1,5 +1,14 @@
 # Changelog
 
+## Useful Palico Horn 1.6.0 — 2026-11-21
+
+- Reads the runtime horn tool through the path Otomo Tools uses:
+  character mini-component updaters -> `mcOtomoToolManager` ->
+  `getOtomoToolManagedClass(HORN_ATKUP)`. The tool object owns the game's own
+  cooldown; its fields are traced once and on change (`tool fields: ...`,
+  `tool: <field> old->new`).
+
+## Useful Palico Horn 1.5.3 — 2026-11-20
 ## Useful Palico Horn 1.5.3 — 2026-11-20
 
 - The status object was **never** in the dumps: the earlier edit did not apply and
