@@ -1,5 +1,14 @@
 # Changelog
 
+## Useful Palico Horn 1.5.3 — 2026-11-20
+
+- The status object was **never** in the dumps: the earlier edit did not apply and
+  the dump still called `access(hunter, "Status")`, which does not exist on this
+  build (the getter is `get_HunterStatus`). The status object, its
+  `_AttackPower` / `_ItemBuff` / `_MealEffect` and the hunter effect are now
+  dumped.
+
+## Useful Palico Horn 1.5.2 — 2026-11-20
 ## Useful Palico Horn 1.5.2 — 2026-11-20
 
 - The character resolved through `getMasterPlayer()` is a wrapper: its

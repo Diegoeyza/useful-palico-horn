@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.5.2"
+local VERSION = "1.5.3"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -1567,10 +1567,23 @@ function dump_buff_state(reason)
     local hunter = local_hunter_character()
 
     dump_fields_into(out.objects, "hunter", hunter)
-    local status = hunter and access(hunter, "Status") or nil
+    local status = hunter and getter(hunter, "get_HunterStatus") or nil
     dump_fields_into(out.objects, "status", status)
     local skill = hunter and getter(hunter, "get_HunterSkill") or nil
     dump_fields_into(out.objects, "skill", skill)
+
+    if status ~= nil then
+        dump_fields_into(out.objects, "attack_power", access(status, "AttackPower"))
+        dump_fields_into(out.objects, "defence_power", access(status, "DefencePower"))
+        dump_fields_into(out.objects, "item_buff", access(status, "ItemBuff"))
+        dump_fields_into(out.objects, "meal_effect", access(status, "MealEffect"))
+        dump_fields_into(out.objects, "bad_conditions", access(status, "BadConditions"))
+    end
+    if hunter ~= nil then
+        dump_fields_into(out.objects, "hunter_effect", access(hunter, "HunterEffect"))
+        dump_fields_into(out.objects, "status_watcher",
+            getter(hunter, "get_StatusWatcher"))
+    end
 
     if skill ~= nil then
         out.otomo_music_timers = array_values(
