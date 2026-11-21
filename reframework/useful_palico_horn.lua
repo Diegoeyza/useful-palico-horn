@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.3.1"
+local VERSION = "1.3.2"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -92,6 +92,7 @@ local state = {
     uses_ours = 0,
     blocked = 0,
     use_hook = "not tried",
+    ids = {},
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -844,6 +845,15 @@ local function install()
                         state.append = safe(function() return sdk.to_int64(args[4]) end)
                         state.captured_at = state.frames
                         state.captures = state.captures + 1
+
+                        local id = safe(function() return sdk.to_int64(args[3]) end)
+                        if type(id) == "number" then
+                            if state.ids[id] == nil then
+                                state.ids[id] = 0
+                                trace("action id " .. tostring(id) .. " first seen")
+                            end
+                            state.ids[id] = state.ids[id] + 1
+                        end
                     end,
                     function(retval) return retval end)
             end)
