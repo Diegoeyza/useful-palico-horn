@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.5"
+local VERSION = "1.6.6"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -1184,44 +1184,45 @@ local function install_action_hook()
                             state.type_before = true
                             trace("_Type before: " .. tostring(hv0) .. "/" .. tostring(v0))
                         end
+                        local function stuck()
+                            local hv, v = nullable_state(obj, "_Type")
+                            return hv == true and v == 1
+                        end
                         local how = nil
-                        -- 1) managed object field setter
-                        if safe(function() obj:set_field("_Type", 1) return true end) == true then
-                            how = "set_field"
-                        end
-                        -- 2) direct field set
-                        if how == nil and pcall(function() return f:set_data(obj, 1) end) then
-                            how = "set_data"
-                        end
-                        -- 3) write the nullable through its field value
+                        -- every attempt is verified by reading the field back;
+                        -- set_field returns true without writing here
                         if how == nil then
-                            local dt = safe(function() return f:get_type() end)
-                            local v = dt and safe(function() return f:get_data(obj) end) or nil
-                            if v ~= nil then
-                                local a = pcall(function()
-                                    sdk.set_native_field(v, dt, "value", 1)
-                                end)
-                                local b = pcall(function()
-                                    sdk.set_native_field(v, dt, "hasValue", true)
-                                end)
-                                if a and b then how = "field_value" end
+                            safe(function() obj:set_field("_Type", 1) end)
+                            if stuck() then how = "set_field" end
+                        end
+                        if how == nil then
+                            pcall(function() f:set_data(obj, 1) end)
+                            if stuck() then how = "set_data" end
+                        end
+                        local dt = safe(function() return f:get_type() end)
+                        local field_value_obj = dt and safe(function() return f:get_data(obj) end) or nil
+                        if how == nil and field_value_obj ~= nil then
+                            pcall(function() sdk.set_native_field(field_value_obj, dt, "value", 1) end)
+                            pcall(function() sdk.set_native_field(field_value_obj, dt, "hasValue", true) end)
+                            if stuck() then how = "field_value" end
+                        end
+                        local vt = dt and safe(function() return ValueType.new(dt) end) or nil
+                        if how == nil and vt ~= nil then
+                            pcall(function() sdk.set_native_field(vt, dt, "value", 1) end)
+                            pcall(function() sdk.set_native_field(vt, dt, "hasValue", true) end)
+                            if how == nil then
+                                safe(function() obj:set_field("_Type", vt) end)
+                                if stuck() then how = "set_field_vt" end
                             end
-                        end
-                        -- 4) build a Nullable value type and assign it
-                        if how == nil then
-                            local dt = safe(function() return f:get_type() end)
-                            local vt = dt and safe(function() return ValueType.new(dt) end) or nil
-                            if vt ~= nil then
-                                local a = pcall(function()
-                                    sdk.set_native_field(vt, dt, "value", 1)
+                            if how == nil then
+                                pcall(function() f:set_data(obj, vt) end)
+                                if stuck() then how = "set_data_vt" end
+                            end
+                            if how == nil then
+                                pcall(function()
+                                    sdk.set_native_field(obj, obj:get_type_definition(), "_Type", vt)
                                 end)
-                                local b = pcall(function()
-                                    sdk.set_native_field(vt, dt, "hasValue", true)
-                                end)
-                                local c = a and b and pcall(function()
-                                    return f:set_data(obj, vt)
-                                end) or false
-                                if c then how = "valuetype" end
+                                if stuck() then how = "native_field_vt" end
                             end
                         end
                         if not state.type_forced then

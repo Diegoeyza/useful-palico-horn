@@ -1,5 +1,16 @@
 # Changelog
 
+## Useful Palico Horn 1.6.6 — 2026-11-21
+
+- `obj:set_field("_Type", 1)` returns true without writing (read-back is
+  `nil/nil`). Every strategy is now verified by reading the nullable back, and
+  more paths are tried: `Field::set_data`, the field value, a built `ValueType`
+  via `set_field`, `set_data` and `set_native_field`. The trace names the one
+  that actually sticks.
+- Enum values: `ATKUP_S=0 ATKUP_L=1 DEFUP_S=2 DEFUP_L=3 NONE=4`; PalicoMod
+  forces 1 (`ATKUP_L`), which is what we write.
+
+## Useful Palico Horn 1.6.5 — 2026-11-21
 ## Useful Palico Horn 1.6.4 — 2026-11-21
 
 - `_Type` is a `Nullable<OTOMO_TOOL_HORN_TYPE>`; `Field::set_data(obj, 1)` raises
