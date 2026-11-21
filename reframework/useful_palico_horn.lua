@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.7"
+local VERSION = "1.6.8"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -857,6 +857,17 @@ local function hunter_music_state()
     return up, timer
 end
 
+-- cHunterAttackPower carries the Attack-Up timer for the hunter. This is the
+-- field the horn's buff actually sets (the HUD icon does not exist for it).
+local function attack_up_state()
+    local hunter = local_hunter_character()
+    local status = hunter and getter(hunter, "get_HunterStatus")
+    local ap = status and access(status, "AttackPower")
+    if ap == nil then return nil end
+    return as_number(getter(ap, "get_AttackUpTimer")),
+        as_number(getter(ap, "get_CurrentAttackPower"))
+end
+
 local function palico_buff()
     if state.buff_objs == nil
         or (state.frames - (state.buff_checked or 0)) > 600 then
@@ -884,16 +895,19 @@ end
 local function read_buff()
     local song = hunter_music_state()
     local palico = palico_buff()
-    local sig = tostring(song) .. "/" .. tostring(palico)
+    local timer = attack_up_state()
+    local timer_up = (timer ~= nil) and (timer > 0) or nil
+    local sig = tostring(song) .. "/" .. tostring(palico) .. "/" .. tostring(timer)
     if sig ~= state.buff_sig then
         state.buff_sig = sig
         trace("buff sources: song=" .. tostring(song)
-            .. " palico=" .. tostring(palico))
+            .. " palico=" .. tostring(palico)
+            .. " atkup_timer=" .. tostring(timer))
     end
 
-    if song == true or palico == true then
+    if song == true or palico == true or timer_up == true then
         state.buff = true
-    elseif song == false or palico == false then
+    elseif (song == false or palico == false) and timer_up ~= true then
         state.buff = false
     else
         state.buff = nil
@@ -1087,11 +1101,12 @@ end
 local function nullable_state(obj, name)
     local f = field_descriptor(obj, name)
     if f == nil then return nil end
-    local dt = safe(function() return f:get_type() end)
-    local v = dt and safe(function() return f:get_data(obj) end) or nil
+    local v = safe(function() return f:get_data(obj) end)
     if v == nil then return nil end
-    return safe(function() return sdk.get_native_field(v, dt, "hasValue") end),
-        safe(function() return sdk.get_native_field(v, dt, "value") end)
+    local hv = safe(function() return v:read_byte(0) end)
+    local val = safe(function() return v:read_dword(4) end)
+    if hv == nil and val == nil then return nil end
+    return hv, val
 end
 
 local function trace_horn_enum()
@@ -1950,6 +1965,18 @@ function dump_buff_state(reason)
 
     out.tool_hook = state.tool_hook
     out.tool_fields = state.tool_fields
+    out.attack_up_timer, out.current_attack = attack_up_state()
+    if status ~= nil then
+        local ap = access(status, "AttackPower")
+        if ap ~= nil then
+            out.attack_power = {
+                attack = as_number(getter(ap, "get_CurrentAttackPower")),
+                add = as_number(getter(ap, "get_CurrentAttackAdd")),
+                rate = as_number(getter(ap, "get_CurrentAttackRate")),
+                timer = as_number(getter(ap, "get_AttackUpTimer")),
+            }
+        end
+    end
     dump_candidates(out)
 
     out.palico = { buff = palico_buff(), objects = {} }

@@ -1,5 +1,15 @@
 # Changelog
 
+## Useful Palico Horn 1.6.8 — 2026-11-21
+
+- The Attack-Up buff has a real numeric source: `cHunterAttackPower` exposes
+  `get_AttackUpTimer()` and `get_CurrentAttackPower()`. The timer reads `-1`
+  when inactive. Buff detection now includes it, and every dump records
+  `attack_power = { attack, add, rate, timer }`.
+- Nullable read-back now uses the ValueType raw readers, so `_Type` readings
+  are truthful.
+
+## Useful Palico Horn 1.6.7 — 2026-11-21
 ## Useful Palico Horn 1.6.7 — 2026-11-21
 
 - Field-name writes cannot reach `Nullable<enum>`. Write its raw bytes instead,
