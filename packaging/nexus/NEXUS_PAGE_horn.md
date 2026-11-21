@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.4.6
+# Nexus page — Useful Palico Horn v1.8.0
 
-Upload `dist/UsefulPalicoHorn-1.4.6.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.8.0.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -29,7 +29,7 @@ Fires the Palico's Attack-Up horn when you want it: first hit, quest start, trap
 ```
 [size=6][b]Useful Palico Horn[/b][/size]
 
-In vanilla, the Palico decides when to play the Attack-Up horn. With its 8 minute cooldown that means roughly one buff per hunt, at a random moment — often while you are walking to the monster, and on cooldown by the time it is trapped or paralysed.
+In vanilla, the Palico decides when to play the Attack-Up horn. With its 10 minute cooldown that means roughly one buff per hunt, at a random moment — often while you are walking to the monster, and on cooldown by the time it is trapped or paralysed.
 
 This mod gives you the timing. The horn is the Palico's own horn: the game still plays the animation and applies the buff, through its normal action pipeline.
 
@@ -49,7 +49,7 @@ This mod gives you the timing. The horn is the Palico's own horn: the game still
 
 Each event trigger fires once per event, not continuously.
 
-A fire only costs the cooldown once the buff is actually up. If a monster roar cancels the animation, or the quest-start request lands before the world has loaded, the fire is refunded and the trigger tries again a few seconds later - no wasted 8 minute window.
+A fire only costs the cooldown once the buff is actually up. If a monster roar cancels the animation, or the quest-start request lands before the world has loaded, the fire is refunded and the trigger tries again a few seconds later - no wasted 10 minute window.
 
 While enabled, the mod also blocks the Palico's own horn use, so the cooldown is
 absolute: the AI cannot play it on the game's schedule behind your back. Untick
@@ -59,7 +59,7 @@ absolute: the AI cannot play it on the game's schedule behind your back. Untick
 
 [size=5][b]Cooldown[/b][/size]
 
-The horn's own cooldown is [b]8 minutes (480 s)[/b].
+The horn's own cooldown is [b]10 minutes (600 s)[/b].
 
 [list]
 [*][b]Use the base game cooldown[/b] (default) applies it to every trigger.
@@ -129,21 +129,16 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
-[b]1.4.6[/b] - first public release
-[list]
-[*]Releases all game objects when a quest ends and does not read the world outside a quest, fixing the endless loading screen and the console errors reported on 1.1.8.
-[*]If the buff does not register, the trigger retries once (2 fires total), then gives up without spending the cooldown.
-[*]The buff is read from the hunter's horn-song skill (isOtomoMusicAttackUp), so the panel no longer shows "down" while the buff is up.
-[/list]
-
-[b]1.4.2[/b]
+[b]1.8.0[/b] - first public release
 [list]
 [*]Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
-[*]Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
-[*]The cooldown resets at the start of each quest, and only starts once the buff is confirmed. A roar-cancelled horn or a request sent before the quest loaded is refunded, and the trigger retries.
-[*]Blocks the Palico's own horn use while enabled, so the AI cannot spend it behind your back.
+[*]The forced horn now plays the Attack-Up horn reliably (the action's horn type is set explicitly, the way PalicoMod does it).
+[*]The cooldown only starts once the buff is confirmed up, and a roar-cancelled horn or a request sent before the quest loaded is refunded. One retry per trigger, then it gives up without spending the window.
+[*]The buff is read from the hunter's attack-up timer (no HUD icon exists for it), so the panel shows the true state.
+[*]Blocks the Palico's own horn use while enabled.
+[*]The game's 10 minute cooldown or any value you choose. It resets at quest start.
+[*]Releases all game objects when a quest ends, so no endless loading screen or console spam.
 [*]Change hotkey button in the panel (default .).
-[*]Live buff state (buff: UP / down).
 [/list]
 
 [line]
@@ -160,22 +155,20 @@ Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.c
 **Changelog field:**
 
 ```
-1.4.6 - first public release
-- Releases all game objects when a quest ends and does not read the world outside a quest, fixing the endless loading screen and the console errors reported on 1.1.8.
-- If the buff does not register, the trigger retries once (2 fires total), then gives up without spending the cooldown.
-- The buff is read from the hunter's horn-song skill (isOtomoMusicAttackUp), so the panel no longer shows "down" while the buff is up.
+1.8.0 - first public release
 - Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
-- Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
-- The cooldown resets at the start of each quest, and only starts once the buff is confirmed. A roar-cancelled horn or a request sent before the quest loaded is refunded, and the trigger retries.
+- The forced horn now plays the Attack-Up horn reliably.
+- The cooldown only starts once the buff is confirmed up; a cancelled horn is refunded. One retry per trigger.
+- The buff is read from the hunter's attack-up timer, so the panel shows the true state.
 - Blocks the Palico's own horn use while enabled.
-- Change hotkey button in the panel (default .).
-- Live buff state (buff: UP / down).
+- The game's 10 minute cooldown or any value you choose, reset at quest start.
+- Releases all game objects at quest end (no endless loading screen).
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.4.6.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.8.0.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay
-- Version: 1.4.6
+- Version: 1.8.0
 - Requirements: REFramework for MH Wilds
 - Companion: Otomo Tools (optional)

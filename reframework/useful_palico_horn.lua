@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.7.2"
+local VERSION = "1.8.0"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -2268,7 +2268,6 @@ end
 re.on_frame(function()
     local ok, err = pcall(function()
         install()
-        install_tool_hook()
         install_action_hook()
         state.frames = state.frames + 1
 
@@ -2316,7 +2315,6 @@ re.on_frame(function()
         end
 
         if state.frames % 300 == 0 then
-            tool_scan()
             if not state.action_dumped and state.action_self ~= nil then
                 local act = safe(sdk.to_managed_object, state.action_self)
                 if act ~= nil then

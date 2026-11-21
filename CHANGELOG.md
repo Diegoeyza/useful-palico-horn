@@ -1,5 +1,29 @@
 # Changelog
 
+## Useful Palico Horn 1.8.0 — 2026-11-21 (release)
+
+The forced horn now applies the Attack-Up buff end to end, verified in game:
+
+```
+fire #1 first hit append=0 -> fired
+_Type after doEnter: 1/1
+buff sources: song=true palico=true atkup_timer=119.68
+fire confirmed: first hit, buff up after 5.0 s
+world released (quest end)
+```
+
+- `cUseHorn.doEnter` forces the action's `Nullable<OTOMO_TOOL_HORN_TYPE>` `_Type`
+  to `ATKUP_L` (1) via raw `ValueType` writes, like PalicoMod. Without it the
+  animation plays but no buff is applied.
+- `want_horn` is armed before the request so the first fire gets the write.
+- Buff detection uses `cHunterAttackPower:get_AttackUpTimer()`, with the horn
+  song and the Palico condition manager as cross-checks.
+- Diagnostic tool probing removed from the frame loop; reflection cached and
+  trace writes throttled (1.7.0).
+- Cooldown default corrected to the game's 600 s; the timer starts only when the
+  buff is confirmed, and a cancelled fire is refunded (one retry).
+
+## Useful Palico Horn 1.7.2 — 2026-11-21
 ## Useful Palico Horn 1.7.2 — 2026-11-21
 
 The forced fire now works end to end:
