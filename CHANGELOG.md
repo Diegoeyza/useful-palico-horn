@@ -1,5 +1,18 @@
 # Changelog
 
+## Useful Palico Horn 1.8.1 — 2026-11-21 (release build)
+
+- Removed every diagnostic probe from the shipped mod: the buff dumps, the
+  condition/monster dumps, the deep candidate scan, the tool manager walk and
+  the action field dump. The JSON files they wrote are no longer produced.
+- The buff is read from `cHunterAttackPower:get_AttackUpTimer()` and the horn
+  song only; the Palico condition manager walk (a 400-node BFS every 10 s) is
+  gone.
+- Trace buffer 120 lines, flushed once a second.
+- No per-frame/probing work at quest start: the only quest-start work is the
+  cooldown reset and trigger arming.
+
+## Useful Palico Horn 1.8.0 — 2026-11-21 (release)
 ## Useful Palico Horn 1.8.0 — 2026-11-21 (release)
 
 The forced horn now applies the Attack-Up buff end to end, verified in game:

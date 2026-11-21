@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.8.0"
+local VERSION = "1.8.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -67,17 +67,7 @@ local state = {
 
     frames = 0,
     hook_note = "not tried",
-    tool_hook = "not tried",
-    tool_manager = nil,
-    tool_values = nil,
-    tool_self = nil,
-    desire_self = nil,
-    tool_fields = nil,
-    tool_dumped = false,
-    tool_type = nil,
     action_hook = "not tried",
-    action_self = nil,
-    action_dumped = false,
     type_forced = false,
     type_before = false,
     type_after = false,
@@ -93,9 +83,6 @@ local state = {
     buff_sig = nil,
     hunter_type = nil,
     skill_missing = false,
-    buff_objs = nil,
-    buff_checked = nil,
-    buff_checked = 0,
 
     base_cooldown = nil,
     base_checked = 0,
@@ -108,8 +95,6 @@ local state = {
     status_type = nil,
     cond = { trapped = nil, stunned = nil, paralyzed = nil },
     cond_prev = {},
-    cond_logged = false,
-    cond_sig = nil,
     scan = nil,              -- { started = frame } while binding a hotkey
     was_playing = nil,
     playing = nil,
@@ -117,15 +102,10 @@ local state = {
     draw_errors = 0,
     quest_start_pending = false,
     quest_start_at = nil,
-    diag_sig = nil,
     blocked = 0,
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
-    dump_requested = false,
-    dump_buff_requested = false,
-    dump_at = nil,
-    dump_seq = 0,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
     monster_max = nil,
@@ -167,7 +147,7 @@ end
 -- was a disk write several times a second and a real source of stutter.
 local function trace(line)
     state.trace[#state.trace + 1] = clock() .. " " .. line
-    while #state.trace > 240 do table.remove(state.trace, 1) end
+    while #state.trace > 120 do table.remove(state.trace, 1) end
     state.trace_dirty = true
 end
 
@@ -305,8 +285,7 @@ end
 
 -- Status flags. The exact accessor names are not documented, so several are
 -- tried on the status manager and the monster objects, and whichever answers
--- with a boolean/number is used. The "Dump monster" button records the real
--- method and field names so these lists can be corrected from data.
+-- with a boolean/number is used.
 -- app.EnemyDef.CONDITION, read from the live type in game.
 local COND_IDS = {
     paralyzed = { 5, 6 },          -- PARALYSE, PARALYSE_EM
@@ -436,87 +415,6 @@ end
 -- The condition array is the last unknown: is a condition a boolean, a timer,
 -- an object? Record the elements' types and their numeric/boolean fields so the
 -- encoding can be read instead of guessed.
-local function dump_conditions(cond, reason)
-    if cond == nil then return end
-    local td = safe(function() return cond:get_type_definition() end)
-    local out = {
-        at = os.time(),
-        reason = reason,
-        module = td and safe(function() return td:get_full_name() end) or nil,
-        elements = {},
-    }
-
-    local arr = field_value(cond, "_Conditions") or field_value(cond, "_ValidContions_BadCond")
-    local n = arr and array_len(arr) or 0
-    for i = 0, math.min(n - 1, 60) do
-        local el = safe(function() return arr[i] end)
-        if el ~= nil then
-            local etd = safe(function() return el:get_type_definition() end)
-            local rec = {
-                index = i,
-                type = etd and safe(function() return etd:get_full_name() end) or nil,
-                values = {},
-            }
-            local walk, depth = etd, 0
-            while walk ~= nil and depth < 4 do
-                for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
-                    local fn = safe(function() return f:get_name() end)
-                    local fv = safe(function() return f:get_data(el) end)
-                    if fn ~= nil and (type(fv) == "number" or type(fv) == "boolean")
-                        and rec.values[fn] == nil then
-                        rec.values[fn] = fv
-                    end
-                end
-                walk = safe(function() return walk:get_parent_type() end)
-                depth = depth + 1
-            end
-            out.elements[#out.elements + 1] = rec
-        end
-    end
-
-    pcall(json.dump_file, "useful_palico_horn_conditions.json", out)
-    trace("conditions dump (" .. tostring(reason) .. ") " .. #out.elements .. " elements")
-end
-
-local function bad_condition_type(cond)
-    if cond == nil then return nil end
-    local m = method0(cond, "getBadCondition")
-    if m == nil then return nil end
-    local obj = safe(function() return m:call(cond) end)
-    if obj == nil then return nil end
-    local t = as_number(field_value(obj, "_ConditionType"))
-    if t ~= nil then return t end
-    local td = safe(function() return obj:get_type_definition() end)
-    return td and safe(function() return td:get_full_name() end) or nil
-end
-
-local function cond_signature(cond)
-    if cond == nil then return "nil" end
-    local parts = {}
-    for _, id in ipairs({ 5, 6, 15, 16, 31, 40 }) do
-        local a = condition_method_bool(cond, "isActive", id)
-        local b = condition_method_bool(cond, "isActualActive", id)
-        parts[#parts + 1] = tostring(id) .. "=" .. tostring(a) .. "/" .. tostring(b)
-    end
-    parts[#parts + 1] = "bad=" .. tostring(bad_condition_type(cond))
-
-    -- counters straight off the array elements: if isActive lies, these still
-    -- change and force a dump
-    local arr = field_value(cond, "_Conditions")
-    if arr ~= nil then
-        for _, id in ipairs({ 15, 16 }) do
-            local el = safe(function() return arr[id] end)
-            local count = el and as_number(field_value(el, "_Count"))
-            local sec = el and as_number(field_value(el, "_ActiveSec"))
-            local acc = el and as_number(field_value(el, "_Accumulation"))
-            parts[#parts + 1] = string.format("stun%d=%s/%s/%s",
-                id, tostring(count), tostring(sec), tostring(acc))
-        end
-    end
-
-    return table.concat(parts, " ")
-end
-
 local function monster_scan()
     local arr = enemy_array()
     if arr == nil then
@@ -637,28 +535,6 @@ local function monster_scan()
             else state.cond.trapped = read_flag(objs, COND_CANDIDATES.trapped) end
         end
 
-        local sig = cond_signature(conditions)
-        if state.cond_sig == nil then
-            state.cond_sig = sig
-            if not state.cond_logged then
-                state.cond_logged = true
-                dump_conditions(conditions, "baseline")
-            end
-        elseif state.cond_sig ~= sig then
-            state.cond_sig = sig
-            trace("cond change: " .. sig)
-            dump_conditions(conditions, "change")
-        end
-
-        if not state.cond_logged then
-            state.cond_logged = true
-            trace("conditions: type=" .. tostring(state.status_type)
-                .. " isActive=" .. tostring(any_condition(conditions, { 5 }) ~= nil)
-                .. " para=" .. tostring(state.cond.paralyzed)
-                .. " stun=" .. tostring(state.cond.stunned)
-                .. " trap=" .. tostring(state.cond.trapped)
-                .. " trapCond=" .. tostring(trap_condition(conditions)))
-        end
     else
         state.cond.paralyzed, state.cond.stunned, state.cond.trapped = nil, nil, nil
     end
@@ -696,31 +572,6 @@ end
 -- reports false forever (verified: all four flags stayed false through a horn
 -- use). So collect every object that exposes isActiveAttackUp near the Palico
 -- and the hunter, and treat the buff as up if any of them says so.
-
-local function children_of(obj)
-    local out = {}
-    local n = array_len(obj)
-    if n ~= nil and n > 0 then
-        for i = 0, math.min(n - 1, 32) do
-            local v = safe(function() return obj[i] end)
-            if v ~= nil then out[#out + 1] = v end
-        end
-        return out
-    end
-    local td = safe(function() return obj:get_type_definition() end)
-    local depth = 0
-    while td ~= nil and depth < 5 do
-        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-            if safe(function() return f:is_static() end) ~= true then
-                local v = safe(function() return f:get_data(obj) end)
-                if v ~= nil then out[#out + 1] = v end
-            end
-        end
-        td = safe(function() return td:get_parent_type() end)
-        depth = depth + 1
-    end
-    return out
-end
 
 local function local_hunter()
     local pm = safe(sdk.get_managed_singleton, "app.PlayerManager")
@@ -796,67 +647,6 @@ end
 -- Roots: the manager, the master otomo control, the master character and the
 -- local hunter. The character and the condition object are resolved directly
 -- because that path is known to work, and they seed the walk even if it stalls.
-local function buff_roots()
-    local roots = {}
-    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
-    if om ~= nil then
-        roots[#roots + 1] = om
-        local ctl = getter(om, "getMasterOtomoManagedControl")
-        if ctl ~= nil then
-            roots[#roots + 1] = ctl
-            local info = field_value(ctl, "_OtomoManagedInfo")
-                or getter(ctl, "get_OtomoManagedInfo")
-            local char = info and field_value(info, "<Character>k__BackingField")
-            if char ~= nil then
-                roots[#roots + 1] = char
-                local stock = field_value(char, "_StockDamage")
-                local cond = stock and field_value(stock, "_Condition")
-                if cond ~= nil then roots[#roots + 1] = cond end
-            end
-        end
-    end
-    local hunter = local_hunter_character()
-    if hunter ~= nil then roots[#roots + 1] = hunter end
-    return roots
-end
-
-local function collect_buff_objects()
-    local out, seen = {}, {}
-    local queue, head, tail = {}, 1, 0
-    for _, r in ipairs(buff_roots()) do
-        if r ~= nil then
-            tail = tail + 1
-            queue[tail] = { obj = r, depth = 0 }
-            seen[r] = true
-        end
-    end
-    local nodes = 0
-    while head <= tail and nodes < 400 do
-        local it = queue[head]
-        queue[head] = nil
-        head = head + 1
-        nodes = nodes + 1
-        if safe(function() return sdk.is_managed_object(it.obj) end) == true then
-            if method0(it.obj, "isActiveAttackUp") ~= nil then
-                out[#out + 1] = it.obj
-            end
-            if it.depth < 5 then
-                for _, child in ipairs(children_of(it.obj)) do
-                    if not seen[child]
-                        and safe(function() return sdk.is_managed_object(child) end) == true then
-                        seen[child] = true
-                        tail = tail + 1
-                        queue[tail] = { obj = child, depth = it.depth + 1 }
-                    end
-                end
-            end
-        end
-    end
-    return out
-end
-
-local BUFF_METHODS = { "isActiveAttackUp", "isEnableAttackUpIcon" }
-
 local function obj_flag(obj, name)
     local m = method0(obj, name)
     if m == nil then return nil end
@@ -911,67 +701,25 @@ local function attack_up_state()
         as_number(getter(ap, "get_CurrentAttackPower"))
 end
 
-local function palico_buff()
-    if state.buff_objs == nil
-        or (state.frames - (state.buff_checked or 0)) > 600 then
-        state.buff_objs = collect_buff_objects()
-        state.buff_checked = state.frames
-        trace("buff objects: " .. #state.buff_objs
-            .. " (roots " .. tostring(#buff_roots()) .. ")")
-    end
-
-    local any = false
-    for _, obj in ipairs(state.buff_objs or {}) do
-        for _, name in ipairs(BUFF_METHODS) do
-            local v = obj_flag(obj, name)
-            if v == true then return true end
-            if v == false then any = true end
-        end
-    end
-    if any then return false end
-    return nil
-end
-
--- Two sources: the hunter's horn-song skill (authoritative for the buff the mod
--- grants) and the Palico's condition manager (fallback / cross-check). Any true
--- wins, so a fire is never refunded while the buff is actually up.
 local function read_buff()
     local song = hunter_music_state()
-    local palico = palico_buff()
     local timer = attack_up_state()
     local timer_up = (timer ~= nil) and (timer > 0) or nil
-    local sig = tostring(song) .. "/" .. tostring(palico) .. "/" .. tostring(timer_up)
+    local sig = tostring(song) .. "/" .. tostring(timer_up)
     if sig ~= state.buff_sig then
         state.buff_sig = sig
-        trace("buff sources: song=" .. tostring(song)
-            .. " palico=" .. tostring(palico)
-            .. " atkup_timer=" .. tostring(timer))
+        trace("buff: song=" .. tostring(song)
+            .. " attack_up_timer=" .. tostring(timer))
     end
 
-    if song == true or palico == true or timer_up == true then
+    if song == true or timer_up == true then
         state.buff = true
-    elseif (song == false or palico == false) and timer_up ~= true then
+    elseif song == false or timer_up == false then
         state.buff = false
     else
         state.buff = nil
     end
     return state.buff
-end
-
-local function buff_diagnostic()
-    local up, sec = hunter_music_state()
-    local head = "song=" .. tostring(up) .. "/" .. tostring(sec)
-    if state.buff_objs == nil then return head end
-    local parts = {}
-    for i, obj in ipairs(state.buff_objs) do
-        local td = safe(function() return obj:get_type_definition() end)
-        local tn = td and safe(function() return td:get_full_name() end) or "?"
-        parts[#parts + 1] = string.format("%d:%s active=%s icon=%s", i, tostring(tn),
-            tostring(obj_flag(obj, "isActiveAttackUp")),
-            tostring(obj_flag(obj, "isEnableAttackUpIcon")))
-    end
-    if #parts == 0 then return head end
-    return head .. " | " .. table.concat(parts, " ")
 end
 
 -- ------------------------------------------------------------------ hook ----
@@ -1085,69 +833,6 @@ end
 -- can stop firing while the game would refuse the buff.
 local USE_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
 
-local function install_tool_hook()
-    if state.tool_hook ~= "not tried" then return end
-    local td = safe(sdk.find_type_definition, USE_TYPE)
-    if td == nil then
-        state.tool_hook = "type not found"
-        trace("tool hook: " .. state.tool_hook)
-        return
-    end
-    local installed = 0
-    for _, name in ipairs({ "isDesireActivate", "useOtomoTool" }) do
-        local m = safe(function() return td:get_method(name) end)
-        if m ~= nil then
-            local ok = pcall(function()
-                sdk.hook(m, function(args)
-                    if args ~= nil and args[2] ~= nil then
-                        if name == "useOtomoTool" then
-                            state.tool_self = args[2]
-                        else
-                            state.desire_self = args[2]
-                        end
-                    end
-                end, function(retval) return retval end)
-            end)
-            if ok then installed = installed + 1 end
-        end
-    end
-    state.tool_hook = "installed " .. installed
-    trace("tool hook: " .. state.tool_hook)
-end
-
--- Dump every field of an object once, with its declared type and value. This is
--- how the horn tool and the cUseHorn action reveal what the game actually has
--- equipped / is playing.
-local function trace_object(label, obj)
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then
-        trace(label .. ": no type")
-        return
-    end
-    trace(label .. ": " .. tostring(safe(function() return td:get_full_name() end)))
-    local walk, depth = td, 0
-    local parts = {}
-    while walk ~= nil and depth < 6 do
-        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
-            local n = safe(function() return f:get_name() end)
-            local ft = safe(function() return f:get_type() end)
-            local tn = ft and safe(function() return ft:get_full_name() end) or "?"
-            local v = safe(function() return f:get_data(obj) end)
-            local vs = ""
-            if type(v) == "number" then vs = string.format("%.2f", v)
-            elseif type(v) == "boolean" or type(v) == "string" then vs = tostring(v) end
-            parts[#parts + 1] = tostring(n) .. "(" .. tostring(tn) .. ")=" .. vs
-        end
-        walk = safe(function() return walk:get_parent_type() end)
-        depth = depth + 1
-    end
-    trace(label .. " fields: " .. table.concat(parts, " "))
-end
-
-
--- That field selects which horn the action plays; without it the forced
--- cUseHorn can play a horn that does not apply Attack Up.
--- Read a Nullable<T> field as { hasValue, value } using the native accessors.
 local function nullable_state(obj, name)
     local f = field_descriptor(obj, name)
     if f == nil then return nil end
@@ -1159,26 +844,6 @@ local function nullable_state(obj, name)
     return hv, val
 end
 
-local function trace_horn_enum()
-    local td = safe(sdk.find_type_definition, "app.OtomoDef.OTOMO_TOOL_HORN_TYPE")
-    if td == nil then
-        trace("horn type enum: not found")
-        return
-    end
-    local parts = {}
-    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-        if safe(function() return f:is_static() end) then
-            local n = safe(function() return f:get_name() end)
-            local v = safe(function() return f:get_data(nil) end)
-            if n ~= nil and type(v) == "number" then
-                parts[#parts + 1] = n .. "=" .. tostring(v)
-            end
-        end
-    end
-    trace("horn type enum: " .. table.concat(parts, " "))
-end
-
--- PalicoMod forces the action's `_Type` field to 1 in useHornActionDoEnter.
 local function install_action_hook()
     if state.action_hook ~= "not tried" then return end
     local td = safe(sdk.find_type_definition, "app.OtomoCommonAction.cUseHorn")
@@ -1187,20 +852,6 @@ local function install_action_hook()
         trace("action hook: " .. state.action_hook)
         return
     end
-
-    local parts = {}
-    local walk, depth = td, 0
-    while walk ~= nil and depth < 6 do
-        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
-            local n = safe(function() return f:get_name() end)
-            local ft = safe(function() return f:get_type() end)
-            local tn = ft and safe(function() return ft:get_full_name() end) or "?"
-            parts[#parts + 1] = tostring(n) .. "(" .. tostring(tn) .. ")"
-        end
-        walk = safe(function() return walk:get_parent_type() end)
-        depth = depth + 1
-    end
-    trace("cUseHorn fields: " .. table.concat(parts, " "))
 
     -- PalicoMod looks this up as "doEnter()" on the action type (its error
     -- message calls it useHornActionDoEnter). Collect doEnter/useHornAction*
@@ -1224,7 +875,6 @@ local function install_action_hook()
         depth2 = depth2 + 1
     end
     trace("cUseHorn enter methods: " .. table.concat(names, " "))
-    trace_horn_enum()
 
     local direct = safe(function() return td:get_method("doEnter()") end)
     if direct ~= nil then list[#list + 1] = direct end
@@ -1237,9 +887,10 @@ local function install_action_hook()
     local ok = false
     for _, m in ipairs(list) do
         local hooked = pcall(function()
+            local last_action = nil
             sdk.hook(m, function(args)
                 if args == nil or args[2] == nil then return end
-                state.action_self = args[2]
+                last_action = args[2]
                 if state.want_horn or state.verify ~= nil then
                     local obj = safe(sdk.to_managed_object, args[2])
                     local f = obj and field_descriptor(obj, "_Type")
@@ -1342,7 +993,7 @@ local function install_action_hook()
             end, function(retval)
                 if state.verify ~= nil and not state.type_after then
                     state.type_after = true
-                    local obj = safe(sdk.to_managed_object, state.action_self)
+                    local obj = safe(sdk.to_managed_object, last_action)
                     local hv, v = nil, nil
                     if obj ~= nil then hv, v = nullable_state(obj, "_Type") end
                     trace("_Type after doEnter: " .. tostring(hv) .. "/" .. tostring(v))
@@ -1354,238 +1005,6 @@ local function install_action_hook()
     end
     state.action_hook = ok and ("installed " .. #list) or "hook failed"
     trace("action hook: " .. state.action_hook)
-end
-
--- The runtime horn tool (the object that owns the game's cooldown) is not
--- reachable from the character directly. Otomo Tools found it through the
--- character's mini-component updaters -> mcOtomoToolManager -> the tool class
--- for the HORN_ATKUP enum value; the same path is used here.
-local function field_children(obj)
-    local out = {}
-    local td = safe(function() return obj:get_type_definition() end)
-    local depth = 0
-    while td ~= nil and depth < 5 do
-        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-            if safe(function() return f:is_static() end) ~= true then
-                local name = safe(function() return f:get_name() end)
-                local v = safe(function() return f:get_data(obj) end)
-                if name ~= nil and v ~= nil then
-                    out[#out + 1] = { key = name, value = v }
-                end
-            end
-        end
-        td = safe(function() return td:get_parent_type() end)
-        depth = depth + 1
-    end
-    return out
-end
-
-local function walk_find(root, pattern, maxDepth, maxNodes)
-    if root == nil then return nil end
-    local queue = { { obj = root, depth = 0 } }
-    local seen = { [root] = true }
-    local nodes, head, tail = 0, 1, 1
-    maxDepth = maxDepth or 3
-    maxNodes = maxNodes or 300
-    while head <= tail and nodes < maxNodes do
-        local it = queue[head]
-        queue[head] = nil
-        head = head + 1
-        nodes = nodes + 1
-        local td = safe(function() return it.obj:get_type_definition() end)
-        local tn = td and safe(function() return td:get_full_name() end) or nil
-        if type(tn) == "string" and tn:lower():find(pattern:lower(), 1, true) then
-            return it.obj
-        end
-        if it.depth < maxDepth then
-            for _, k in ipairs(field_children(it.obj)) do
-                if safe(function() return sdk.is_managed_object(k.value) end) == true
-                    and not seen[k.value] then
-                    seen[k.value] = true
-                    tail = tail + 1
-                    queue[tail] = { obj = k.value, depth = it.depth + 1 }
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function tool_manager()
-    if state.tool_manager ~= nil then return state.tool_manager end
-    if state.tool_retry_at ~= nil and state.frames < state.tool_retry_at then
-        return nil
-    end
-
-    local chars = {}
-    local om = safe(sdk.get_managed_singleton, "app.OtomoManager")
-    if om ~= nil then
-        local ctl = getter(om, "getMasterOtomoManagedControl")
-        if ctl ~= nil then
-            local info = field_value(ctl, "_OtomoManagedInfo")
-                or getter(ctl, "get_OtomoManagedInfo")
-            local char = info and field_value(info, "<Character>k__BackingField")
-            if char == nil then
-                char = walk_find(ctl, "OtomoCharacter", 2, 120)
-            end
-            if char ~= nil then chars[#chars + 1] = char end
-        end
-    end
-    if state.action_self ~= nil then
-        local act = safe(sdk.to_managed_object, state.action_self)
-        local char = act and field_value(act, "<Chara>k__BackingField")
-        if char ~= nil then chars[#chars + 1] = char end
-    end
-
-    local fields = {
-        "_MiniCompUpdater_LateUpdate", "_MiniCompUpdater_AfterMotion",
-        "_MiniCompUpdater_AfterAction", "_MiniCompUpdater_LateUpdateEnd",
-        "_MiniCompUpdator_BeforeAction", "_Components",
-    }
-    local seen_types = {}
-    local tried = 0
-    for _, char in ipairs(chars) do
-        local td = safe(function() return char:get_type_definition() end)
-        local tn = td and safe(function() return td:get_full_name() end) or "?"
-        if not seen_types[tn] then
-            seen_types[tn] = true
-            trace("tool manager: character " .. tostring(tn))
-        end
-        for _, name in ipairs(fields) do
-            local root = field_value(char, name)
-            if root ~= nil then
-                tried = tried + 1
-                local m = walk_find(root, "otomoToolManager", 3, 300)
-                if m ~= nil then
-                    state.tool_manager = m
-                    state.tool_manager_path = name
-                    trace("tool manager found via " .. name)
-                    return m
-                end
-            end
-        end
-    end
-    state.tool_retry_at = state.frames + 1800
-    if not state.tool_manager_missing then
-        state.tool_manager_missing = true
-        trace("tool manager: not found (chars=" .. tostring(#chars)
-            .. " roots=" .. tostring(tried) .. ")")
-    end
-    return nil
-end
-
-local function tool_enum()
-    if state.tool_values ~= nil then return state.tool_values end
-    for _, short in ipairs({ "USE_OTOMO_TOOL_TYPE", "OTOMO_TOOL_TYPE" }) do
-        local tn = nil
-        for _, c in ipairs({ "app.OtomoDef." .. short, "app." .. short, short }) do
-            if safe(sdk.find_type_definition, c) ~= nil then tn = c break end
-        end
-        if tn ~= nil then
-            local td = safe(sdk.find_type_definition, tn)
-            local vals = {}
-            for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-                if safe(function() return f:is_static() end) == true then
-                    local n = safe(function() return f:get_name() end)
-                    local v = safe(function() return f:get_data(nil) end)
-                    if n ~= nil and type(v) == "number" then vals[n] = v end
-                end
-            end
-            if next(vals) ~= nil then
-                state.tool_values = vals
-                return vals
-            end
-        end
-    end
-    return nil
-end
-
-local function horn_tool()
-    local vals = tool_enum()
-    if vals == nil then return nil end
-    local value = nil
-    for name, v in pairs(vals) do
-        if name:find("HORN_ATKUP", 1, true) then value = v break end
-    end
-    if value == nil then return nil end
-    local mgr = tool_manager()
-    if mgr == nil then return nil end
-    local td = safe(function() return mgr:get_type_definition() end)
-    if td == nil then return nil end
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        if safe(function() return m:get_name() end) == "getOtomoToolManagedClass"
-            and safe(function() return m:get_num_params() end) == 1 then
-            return safe(function() return m:call(mgr, value) end)
-        end
-    end
-    return nil
-end
-
-local function tool_state()
-    if state.tool_self == nil then return nil end
-    return safe(sdk.to_managed_object, state.tool_self)
-end
-
-local function tool_fields_of(obj)
-    local out = {}
-    local td = safe(function() return obj:get_type_definition() end)
-    local walk, depth = td, 0
-    while walk ~= nil and depth < 6 do
-        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
-            local n = safe(function() return f:get_name() end)
-            if n ~= nil and out[n] == nil then
-                local v = safe(function() return f:get_data(obj) end)
-                if type(v) == "number" or type(v) == "boolean" or type(v) == "string" then
-                    out[n] = v
-                end
-            end
-        end
-        walk = safe(function() return walk:get_parent_type() end)
-        depth = depth + 1
-    end
-    return out
-end
-
-local function tool_scan()
-    local obj = horn_tool() or tool_state()
-    if obj == nil then
-        if not state.tool_missing then
-            state.tool_missing = true
-            trace("horn tool: not resolved (manager="
-                .. tostring(state.tool_manager ~= nil)
-                .. " use_capture=" .. tostring(state.tool_self ~= nil) .. ")")
-        end
-        return
-    end
-    if not state.tool_dumped then
-        state.tool_dumped = true
-        trace_object("tool object", obj)
-    end
-    local fields = tool_fields_of(obj)
-    local prev = state.tool_fields
-    state.tool_fields = fields
-    if prev == nil then
-        local parts = {}
-        for k, v in pairs(fields) do
-            if type(v) == "number" then
-                parts[#parts + 1] = k .. "=" .. string.format("%.2f", v)
-            end
-        end
-        table.sort(parts)
-        trace("tool fields: " .. table.concat(parts, " "))
-        return
-    end
-    local changes = {}
-    for k, v in pairs(fields) do
-        local before = prev[k]
-        if type(v) == "number" and type(before) == "number" and before ~= v then
-            changes[#changes + 1] = k .. " " .. string.format("%.2f->%.2f", before, v)
-        end
-    end
-    if #changes > 0 then
-        table.sort(changes)
-        trace("tool: " .. table.concat(changes, " "))
-    end
 end
 
 -- ----------------------------------------------------------------- input ----
@@ -1721,8 +1140,6 @@ end
 
 -- Forward declaration: a failed fire dumps the live buff state, and the dump
 -- section is defined below the fire section.
-local dump_buff_state
-
 local function attempt_key(reason)
     if reason == "first hit" then return "first_hit" end
     if reason == "quest start" then return "quest_start" end
@@ -1821,10 +1238,6 @@ local function confirm_fire()
     state.last_result = string.format(
         "fire did not land (%s), cooldown not used", v.reason)
     trace("fire not confirmed: " .. tostring(v.reason) .. " - cooldown not used")
-    if not state.dump_fire_done then
-        state.dump_fire_done = true
-        dump_buff_state("fire not confirmed: " .. tostring(v.reason))
-    end
 
     local k = attempt_key(v.reason)
     local tries = k ~= nil and (state.tries[k] or 0) or 0
@@ -1884,338 +1297,6 @@ end
 
 -- Live snapshot of everything that could carry the horn buff, written while the
 -- buff is visibly up. One read tells us which field actually moves.
-local function describe_value(v)
-    local t = type(v)
-    if v == nil then return nil end
-    if t == "number" or t == "boolean" or t == "string" then return v end
-    if safe(function() return sdk.is_managed_object(v) end) == true then
-        local td = safe(function() return v:get_type_definition() end)
-        return "obj:" .. tostring(td and safe(function() return td:get_full_name() end) or "?")
-    end
-    return "<" .. t .. ">"
-end
-
-local function array_values(obj, maxn)
-    if obj == nil then return nil end
-    local n = safe(function() return obj:get_Length() end)
-        or safe(function() return obj:get_Count() end)
-        or safe(function() return obj:get_Size() end)
-    if type(n) ~= "number" then return nil end
-    local out = {}
-    for i = 0, math.min(n - 1, maxn or 16) do
-        out[#out + 1] = describe_value(safe(function() return obj[i] end))
-    end
-    return out
-end
-
-local function dump_fields_into(into, label, obj)
-    if obj == nil then return end
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return end
-    local rec = {
-        type = safe(function() return td:get_full_name() end),
-        fields = {},
-        methods = {},
-        arrays = {},
-    }
-    local walk, depth = td, 0
-    while walk ~= nil and depth < 6 do
-        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
-            local n = safe(function() return f:get_name() end)
-            if n ~= nil and rec.fields[n] == nil then
-                local v = safe(function() return f:get_data(obj) end)
-                rec.fields[n] = describe_value(v)
-                if safe(function() return sdk.is_managed_object(v) end) == true then
-                    local vals = array_values(v, 16)
-                    if vals ~= nil then rec.arrays[n] = vals end
-                end
-            end
-        end
-        walk = safe(function() return walk:get_parent_type() end)
-        depth = depth + 1
-    end
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        local n = safe(function() return m:get_name() end)
-        if n ~= nil and #n < 80 then
-            rec.methods[n] = safe(function() return m:get_num_params() end)
-        end
-    end
-    into[label] = rec
-end
-
--- Every object near the hunter/otomo that exposes an AttackUp/Music method,
--- with its live flags. Finds the field even if it sits deeper than the normal
--- buff walk reaches.
-local function dump_candidates(out)
-    local seen, queue, head, tail = {}, {}, 1, 0
-    for _, r in ipairs(buff_roots()) do
-        if r ~= nil then
-            tail = tail + 1
-            queue[tail] = { obj = r, depth = 0 }
-            seen[r] = true
-        end
-    end
-    local nodes = 0
-    out.candidates = {}
-    while head <= tail and nodes < 1200 do
-        local it = queue[head]
-        queue[head] = nil
-        head = head + 1
-        nodes = nodes + 1
-        if safe(function() return sdk.is_managed_object(it.obj) end) == true then
-            local td = safe(function() return it.obj:get_type_definition() end)
-            local hits = {}
-            for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-                local n = safe(function() return m:get_name() end)
-                if type(n) == "string" and (n:find("AttackUp", 1, true)
-                    or n:find("OtomoMusic", 1, true)) then
-                    hits[#hits + 1] = n
-                end
-            end
-            if #hits > 0 then
-                out.candidates[#out.candidates + 1] = {
-                    depth = it.depth,
-                    type = td and safe(function() return td:get_full_name() end) or "?",
-                    methods = hits,
-                    active_attack_up = obj_flag(it.obj, "isActiveAttackUp"),
-                    active_attack_up_icon = obj_flag(it.obj, "isEnableAttackUpIcon"),
-                    otomo_music_attack_up = obj_flag(it.obj, "isOtomoMusicAttackUp"),
-                    otomo_music_timer = describe_value(
-                        safe(function() return it.obj:getOtomoMusicSkillTimer() end)),
-                }
-            end
-            if it.depth < 8 then
-                for _, child in ipairs(children_of(it.obj)) do
-                    if not seen[child]
-                        and safe(function() return sdk.is_managed_object(child) end) == true then
-                        seen[child] = true
-                        tail = tail + 1
-                        queue[tail] = { obj = child, depth = it.depth + 1 }
-                    end
-                end
-            end
-        end
-    end
-end
-
-function dump_buff_state(reason)
-    local out = { at = os.time(), version = VERSION, reason = reason,
-        buff = state.buff, objects = {}, calls = {} }
-    local hunter = local_hunter_character()
-
-    dump_fields_into(out.objects, "hunter", hunter)
-    local status = hunter and getter(hunter, "get_HunterStatus") or nil
-    dump_fields_into(out.objects, "status", status)
-    local skill = hunter and getter(hunter, "get_HunterSkill") or nil
-    dump_fields_into(out.objects, "skill", skill)
-
-    if status ~= nil then
-        dump_fields_into(out.objects, "attack_power", access(status, "AttackPower"))
-        dump_fields_into(out.objects, "defence_power", access(status, "DefencePower"))
-        dump_fields_into(out.objects, "item_buff", access(status, "ItemBuff"))
-        dump_fields_into(out.objects, "meal_effect", access(status, "MealEffect"))
-        dump_fields_into(out.objects, "bad_conditions", access(status, "BadConditions"))
-    end
-    if hunter ~= nil then
-        dump_fields_into(out.objects, "hunter_effect", access(hunter, "HunterEffect"))
-        dump_fields_into(out.objects, "status_watcher",
-            getter(hunter, "get_StatusWatcher"))
-    end
-
-    if skill ~= nil then
-        out.otomo_music_timers = array_values(
-            field_value(skill, "_OtomoMusicSkillTimer"), 16)
-        for _, name in ipairs({ "isOtomoMusicAttackUp", "isOtomoMusicDefenceUp",
-                                "getOtomoMusicSkillTimer", "getMusicSkillRate",
-                                "getSkillOtomoPowerUpAttackRate" }) do
-            local m = method0(skill, name)
-            if m ~= nil then
-                out.calls[name .. "()"] =
-                    describe_value(safe(function() return m:call(skill) end))
-            end
-        end
-        local td = safe(function() return skill:get_type_definition() end)
-        for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-            if safe(function() return m:get_name() end) == "getOtomoMusicSkillTimer"
-                and safe(function() return m:get_num_params() end) == 1 then
-                for i = 0, 7 do
-                    out.calls["getOtomoMusicSkillTimer(" .. i .. ")"] =
-                        describe_value(safe(function() return m:call(skill, i) end))
-                end
-            end
-        end
-    end
-
-    for _, obj in ipairs({ hunter, status }) do
-        for _, name in ipairs({ "ItemBuff", "Buff", "Condition", "Conditions" }) do
-            local v = obj and access(obj, name) or nil
-            if v ~= nil then
-                dump_fields_into(out.objects, "hunter." .. name, v)
-            end
-        end
-    end
-
-    out.tool_hook = state.tool_hook
-    out.tool_fields = state.tool_fields
-    out.attack_up_timer, out.current_attack = attack_up_state()
-    if status ~= nil then
-        local ap = access(status, "AttackPower")
-        if ap ~= nil then
-            out.attack_power = {
-                attack = as_number(getter(ap, "get_CurrentAttackPower")),
-                add = as_number(getter(ap, "get_CurrentAttackAdd")),
-                rate = as_number(getter(ap, "get_CurrentAttackRate")),
-                timer = as_number(getter(ap, "get_AttackUpTimer")),
-            }
-        end
-    end
-    dump_candidates(out)
-
-    out.palico = { buff = palico_buff(), objects = {} }
-    for i, o in ipairs(state.buff_objs or {}) do
-        if not o then break end
-        local td = safe(function() return o:get_type_definition() end)
-        out.palico.objects[#out.palico.objects + 1] = {
-            index = i,
-            type = td and safe(function() return td:get_full_name() end) or "?",
-            active = obj_flag(o, "isActiveAttackUp"),
-            icon = obj_flag(o, "isEnableAttackUpIcon"),
-        }
-    end
-
-    state.dump_seq = (state.dump_seq or 0) + 1
-    local file = "useful_palico_horn_buff_" .. state.dump_seq .. ".json"
-    pcall(json.dump_file, file, out)
-    trace("buff state dumped (" .. tostring(reason) .. ") -> " .. file)
-end
-
-local function dump_obj(label, obj)
-    if obj == nil then return nil end
-    local td = safe(function() return obj:get_type_definition() end)
-    if td == nil then return nil end
-    local rec = {
-        label = label,
-        type = safe(function() return td:get_full_name() end),
-        methods = {},
-        fields = {},
-    }
-    for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
-        local n = safe(function() return m:get_name() end)
-        if n ~= nil then rec.methods[#rec.methods + 1] = n end
-    end
-    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-        local n = safe(function() return f:get_name() end)
-        if n ~= nil then
-            local ft = safe(function() return f:get_type() end)
-            local tn = ft ~= nil and safe(function() return ft:get_full_name() end) or nil
-            rec.fields[#rec.fields + 1] = n .. " : " .. tostring(tn)
-        end
-    end
-    table.sort(rec.methods)
-    table.sort(rec.fields)
-    return rec
-end
-
--- Enum member name -> value, for the AI/condition state enums.
-local function enum_members(typeName)
-    local td = safe(sdk.find_type_definition, typeName)
-    if td == nil then return nil end
-    local out = {}
-    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-        if safe(function() return f:is_static() end) then
-            local n = safe(function() return f:get_name() end)
-            local v = safe(function() return f:get_data(nil) end)
-            if n ~= nil and type(v) == "number" then
-                out[#out + 1] = { name = n, value = v }
-            end
-        end
-    end
-    table.sort(out, function(a, b) return a.value < b.value end)
-    return out
-end
-
--- Read-only: records the real type, method and field names so the status-flag
--- candidates can be corrected from data instead of guessed.
-local function dump_monster()
-    local out = { at = os.time(), status_type = state.status_type, objects = {} }
-    for _, e in ipairs({
-        { "ctx", state.boss_ctx }, { "em", state.boss_em },
-        { "basic", state.boss_basic }, { "chara", state.boss_chara },
-        { "status", state.boss_status },
-    }) do
-        local rec = dump_obj(e[1], e[2])
-        if rec ~= nil then out.objects[#out.objects + 1] = rec end
-    end
-    for _, m in ipairs(state.boss_modules or {}) do
-        local rec = dump_obj("module:" .. tostring(m[1]), m[2])
-        if rec ~= nil then out.objects[#out.objects + 1] = rec end
-    end
-
-    if state.boss_chara ~= nil then
-        local td = safe(function() return state.boss_chara:get_type_definition() end)
-        local kids = {}
-        for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
-            local n = safe(function() return f:get_name() end)
-            local v = safe(function() return f:get_data(state.boss_chara) end)
-            if n ~= nil and v ~= nil
-                and safe(function() return sdk.is_managed_object(v) end) == true then
-                local kt = safe(function() return v:get_type_definition():get_full_name() end)
-                kids[#kids + 1] = { name = n, type = tostring(kt) }
-            end
-        end
-        out.chara_children = kids
-    end
-
-    -- condition objects: their own type and members tell us if they carry an
-    -- "active" flag we can read
-    local conditions = nil
-    for _, m in ipairs(state.boss_modules or {}) do
-        if m[1] == "conditions" then conditions = m[2] end
-    end
-    if conditions ~= nil then
-        out.condition_objects = {}
-        for _, name in ipairs({ "Capture", "FieldPitfall", "Flash", "Blast",
-                                "Tired", "Koyasi", "SandDig" }) do
-            local rec = dump_obj("condition:" .. name, access(conditions, name))
-            if rec ~= nil then out.condition_objects[#out.condition_objects + 1] = rec end
-        end
-    end
-
-    -- the AI state/interrupt enums are the likely home of paralysis and stun
-    out.enums = {}
-    for _, tn in ipairs({
-        "app.EnemyDef.AI_STATE_ID",
-        "app.EnemyDef.AI_INTERRUPT_ID",
-        "app.EnemyDef.CONDITION",
-        "app.EnemyDef.EXTRA_STATE",
-        "app.CharacterDef.STAND_STATE",
-    }) do
-        local members = enum_members(tn)
-        if members ~= nil then
-            out.enums[#out.enums + 1] = { type = tn, members = members }
-        end
-    end
-
-    -- live values at dump time
-    local ai = nil
-    for _, m in ipairs(state.boss_modules or {}) do
-        if m[1] == "aistate" then ai = m[2] end
-    end
-    out.current = {
-        extra_state = state.boss_em and tostring(access(state.boss_em, "ExtraState")) or nil,
-        stand_state = state.boss_em and tostring(access(state.boss_em, "StandState")) or nil,
-        down_direction = state.boss_em and tostring(access(state.boss_em, "DownDirection")) or nil,
-        ai_state = ai and tostring(access(ai, "CurrentAIStateID")) or nil,
-        ai_interrupt = ai and tostring(access(ai, "CurrentAIInterruptID")) or nil,
-        is_capture = ai and tostring(access(ai, "IsCapture")) or nil,
-        is_flash = ai and tostring(access(ai, "IsFlash")) or nil,
-        is_damage = ai and tostring(access(ai, "IsDamage")) or nil,
-    }
-
-    pcall(json.dump_file, "monster_flags.json", out)
-    trace("monster dump written")
-end
-
 -- ----------------------------------------------------------------- frame ----
 
 -- REFramework pins managed objects that Lua still references. Holding the
@@ -2226,41 +1307,25 @@ end
 local function release_world(why)
     state.self = nil
     state.append = nil
-    state.buff_objs = nil
     state.buff = nil
     state.buff_sig = nil
     state.hunter_type = nil
     state.skill_missing = false
-    state.buff_checked = 0
     state.boss_ctx, state.boss_em = nil, nil
     state.boss_chara, state.boss_basic, state.boss_status = nil, nil, nil
     state.boss_modules = {}
     state.status_type = nil
     state.cond = { trapped = nil, stunned = nil, paralyzed = nil }
     state.cond_prev = {}
-    state.cond_sig = nil
-    state.cond_logged = false
     state.monster_state, state.monster_hp, state.monster_max = nil, nil, nil
     state.monster_note = "-"
     state.chain_logged = false
     state.verify = nil
     state.pending_fire = nil
     state.pending_kind = nil
-    state.dump_at = nil
-    state.tool_self = nil
-    state.desire_self = nil
-    state.tool_manager = nil
-    state.tool_fields = nil
-    state.tool_dumped = false
-    state.tool_missing = nil
-    state.tool_manager_missing = nil
-    state.tool_manager_path = nil
-    state.action_self = nil
-    state.action_dumped = false
     state.type_forced = false
     state.type_before = false
     state.type_after = false
-    state.diag_sig = nil
     pcall(function() collectgarbage("collect") end)
     trace("world released (" .. tostring(why) .. ")")
 end
@@ -2285,13 +1350,10 @@ re.on_frame(function()
                     state.first_hit_done = false
                     state.reason_last = {}
                     state.tries = { first_hit = 0, quest_start = 0 }
-                    state.buff_objs = nil
                     state.verify = nil
                     state.retry_at = 0
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                     state.quest_start_at = state.frames + 240   -- ~4 s settle
-                    state.dump_at = state.frames + 360          -- baseline ~6 s
-                    state.dump_fire_done = false
                 end
                 if playing == false then
                     state.quest_start_pending = false
@@ -2302,27 +1364,10 @@ re.on_frame(function()
         end
 
         if state.playing == true then
-            if state.frames % 600 == 0 then state.buff_objs = nil end
             if state.frames % 30 == 0 then read_buff() end
-            if state.frames % 300 == 0 then
-                local diag = buff_diagnostic()
-                if diag ~= state.diag_sig then
-                    state.diag_sig = diag
-                    trace("buff diag: " .. diag)
-                end
-            end
             if state.frames % 60 == 0 then monster_scan() end
         end
 
-        if state.frames % 300 == 0 then
-            if not state.action_dumped and state.action_self ~= nil then
-                local act = safe(sdk.to_managed_object, state.action_self)
-                if act ~= nil then
-                    state.action_dumped = true
-                    trace_object("horn action", act)
-                end
-            end
-        end
         confirm_fire()
         if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 
@@ -2365,19 +1410,6 @@ re.on_frame(function()
             end
         end
 
-        if state.dump_requested then
-            state.dump_requested = false
-            dump_monster()
-        end
-        if state.dump_at ~= nil and state.frames >= state.dump_at then
-            state.dump_at = nil
-            dump_buff_state("quest start baseline")
-        end
-        if state.dump_buff_requested then
-            state.dump_buff_requested = false
-            dump_buff_state("manual")
-        end
-
         -- keep-alive: buff down, gated by the global cooldown
         if state.cfg.auto_when_down and state.buff == false
             and state.pending_fire == nil and state.verify == nil
@@ -2403,7 +1435,7 @@ re.on_frame(function()
             end
         end
 
-        if state.frames % 30 == 0 then flush_trace() end
+        if state.frames % 60 == 0 then flush_trace() end
         if state.frames % 300 == 0 then
             local buffv = state.buff == true and "UP"
                 or (state.buff == false and "down" or "?")
@@ -2512,10 +1544,6 @@ local function draw_body()
     changed, state.cfg.block_ai_use =
         imgui.checkbox("Block the Palico's own horn use", state.cfg.block_ai_use)
     if changed then save_config() end
-
-    if imgui.button("Dump buff state (click while the buff is up)") then
-        state.dump_buff_requested = true
-    end
 
     imgui.separator()
     imgui.text("last: " .. tostring(state.last_result))
