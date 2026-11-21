@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -86,7 +86,8 @@ local state = {
     quest_start_pending = false,
     quest_start_at = nil,
     diag_sig = nil,
-    ours_until = 0,
+    allow_use = 0,           -- one use credit, consumed by our own fire
+    allow_until = 0,
     uses_ai = 0,
     uses_ours = 0,
     blocked = 0,
@@ -1022,7 +1023,8 @@ local function fire(reason)
     end)
 
     state.fires = state.fires + 1
-    state.ours_until = state.frames + 600   -- ~10 s: our action may resolve late
+    state.allow_use = (state.allow_use or 0) + 1
+    state.allow_until = state.frames + 900   -- ~15 s for the action to resolve
     state.last_fire_frame = state.frames
     state.last_fire_time = os.time()
     state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
@@ -1175,7 +1177,8 @@ local function install_use_hook()
     if m == nil then state.use_hook = "method not found" return end
     local ok = pcall(function()
         sdk.hook(m, function(args)
-            if state.frames <= state.ours_until then
+            if state.allow_use > 0 and state.frames <= state.allow_until then
+                state.allow_use = state.allow_use - 1
                 state.uses_ours = state.uses_ours + 1
                 return
             end
