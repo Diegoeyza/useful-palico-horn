@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.7.1"
+local VERSION = "1.7.2"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -135,6 +135,7 @@ local state = {
 
     fires = 0,
     confirmed = 0,
+    want_horn = false,
     verify = nil,            -- { reason, at, seen } while a fire is unproven
     retry_at = 0,
     tries = { first_hit = 0, quest_start = 0 },
@@ -1239,7 +1240,7 @@ local function install_action_hook()
             sdk.hook(m, function(args)
                 if args == nil or args[2] == nil then return end
                 state.action_self = args[2]
-                if state.verify ~= nil then
+                if state.want_horn or state.verify ~= nil then
                     local obj = safe(sdk.to_managed_object, args[2])
                     local f = obj and field_descriptor(obj, "_Type")
                     if f ~= nil then
@@ -1329,6 +1330,7 @@ local function install_action_hook()
                                 if stuck() then how = "native_field_vt" end
                             end
                         end
+                        state.want_horn = false
                         if not state.type_forced then
                             state.type_forced = true
                             local hv1, v1 = nullable_state(obj, "_Type")
@@ -1758,10 +1760,12 @@ local function fire(reason)
     local self = safe(sdk.to_managed_object, state.self)
     local append = state.append_horn or state.append
     state.firing = true
+    state.want_horn = true
     local ok, ret = pcall(function()
         return state.method:call(self, HORN_ACTION, append)
     end)
     state.firing = false
+    if not ok then state.want_horn = false end
 
     state.fires = state.fires + 1
     state.last_fire_frame = state.frames
@@ -1790,6 +1794,7 @@ local function confirm_fire()
         if v.seen == nil then v.seen = state.frames end
         if state.frames - v.seen >= VERIFY_HOLD then
             state.verify = nil
+            state.want_horn = false
             state.confirmed = state.confirmed + 1
             state.last_fire_time = os.time()
             state.last_result = string.format("fired (%s), buff up", v.reason)
@@ -1811,6 +1816,7 @@ local function confirm_fire()
     if state.frames - v.at < VERIFY_TIMEOUT then return end
 
     state.verify = nil
+    state.want_horn = false
     state.reason_last[v.reason] = nil
     state.last_result = string.format(
         "fire did not land (%s), cooldown not used", v.reason)

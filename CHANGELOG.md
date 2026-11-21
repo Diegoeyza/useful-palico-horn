@@ -1,5 +1,24 @@
 # Changelog
 
+## Useful Palico Horn 1.7.2 — 2026-11-21
+
+The forced fire now works end to end:
+
+```
+fire #2 first hit append=0 -> fired
+_Type before: 0/0
+forced horn _Type=1: raw_set_field -> 1/1
+_Type after doEnter: 1/1
+buff sources: song=true palico=true atkup_timer=119.6
+fire confirmed: first hit, buff up after 5.0 s
+```
+
+The first attempt can miss because the action's `doEnter` runs before `fire()`
+sets `state.verify`, so the `_Type` write was skipped. `want_horn` is now set
+before the request and cleared by the action entry, so the first fire gets the
+write too (no wasted attempt).
+
+## Useful Palico Horn 1.7.1 — 2026-11-21
 ## Useful Palico Horn 1.7.1 — 2026-11-21
 
 The logs now prove the buff reader works: when the Palico used its horn on its
