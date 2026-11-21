@@ -1,5 +1,15 @@
 # Changelog
 
+## Useful Palico Horn 1.4.6 — 2026-11-20
+
+- `PlayerManager:getMasterPlayer()` returns `app.cPlayerManageInfo`, not the
+  character, so the hunter skill lookup never resolved (`song=nil`). The info
+  object's `get_Character()` gives the `app.HunterCharacter` that carries
+  `get_HunterSkill()`.
+- Trace: `hunter object: app.HunterCharacter`, then
+  `buff sources: song=true palico=false` when the horn buff is on.
+
+## Useful Palico Horn 1.4.5 — 2026-11-20
 ## Useful Palico Horn 1.4.5 — 2026-11-20
 
 Buff state showed `down` while the buff was up, so a landed fire could be

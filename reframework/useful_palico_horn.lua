@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.5"
+local VERSION = "1.4.6"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -77,6 +77,8 @@ local state = {
 
     buff = nil,
     buff_sig = nil,
+    hunter_type = nil,
+    skill_missing = false,
     buff_objs = nil,
     buff_checked = nil,
     buff_checked = 0,
@@ -680,6 +682,17 @@ local function local_hunter()
     return getter(pm, "getMasterPlayer")
 end
 
+-- local_hunter() returns app.cPlayerManageInfo on this build, not the character.
+-- The HunterCharacter (and its cHunterSkill) hangs off Character/Get_Character.
+local function local_hunter_character()
+    local info = local_hunter()
+    if info == nil then return nil end
+    if method0(info, "get_HunterSkill") ~= nil then return info end
+    local character = getter(info, "get_Character")
+    if character ~= nil then return character end
+    return info
+end
+
 -- Roots: the manager, the master otomo control, the master character and the
 -- local hunter. The character and the condition object are resolved directly
 -- because that path is known to work, and they seed the walk even if it stalls.
@@ -702,7 +715,7 @@ local function buff_roots()
             end
         end
     end
-    local hunter = local_hunter()
+    local hunter = local_hunter_character()
     if hunter ~= nil then roots[#roots + 1] = hunter end
     return roots
 end
@@ -758,14 +771,27 @@ end
 -- manager only mirrors it when the Palico gets the buff too, so it is the
 -- fallback, not the source.
 local function hunter_music_state()
-    local hunter = local_hunter()
+    local hunter = local_hunter_character()
     if hunter == nil then return nil end
+
+    if state.hunter_type == nil then
+        local td = safe(function() return hunter:get_type_definition() end)
+        state.hunter_type = td and safe(function() return td:get_full_name() end) or "?"
+        trace("hunter object: " .. tostring(state.hunter_type))
+    end
+
     local skill = getter(hunter, "get_HunterSkill")
     if skill == nil then
         local status = access(hunter, "Status")
         skill = status and access(status, "Skill") or nil
     end
-    if skill == nil then return nil end
+    if skill == nil then
+        if not state.skill_missing then
+            state.skill_missing = true
+            trace("hunter skill: not found on " .. tostring(state.hunter_type))
+        end
+        return nil
+    end
 
     local up = obj_flag(skill, "isOtomoMusicAttackUp")
     if up == nil then return nil end
@@ -1352,6 +1378,8 @@ local function release_world(why)
     state.buff_objs = nil
     state.buff = nil
     state.buff_sig = nil
+    state.hunter_type = nil
+    state.skill_missing = false
     state.buff_checked = 0
     state.boss_ctx, state.boss_em = nil, nil
     state.boss_chara, state.boss_basic, state.boss_status = nil, nil, nil
