@@ -39,7 +39,7 @@ This mod gives you the timing. The horn is the Palico's own horn: the game still
 
 [list]
 [*][b]On the first hit to the monster[/b] — the buff goes up as soon as the fight starts.
-[*][b]At quest start[/b] — about 4 seconds in, once the Palico can actually act.
+[*][b]At quest start[/b] — once the world has loaded and the Palico can act.
 [*][b]When the monster is trapped[/b] — pitfall, shock and ivy traps.
 [*][b]When the monster is stunned[/b] — the KO with stars.
 [*][b]When the monster is paralyzed[/b] — the paralysis ailment.
