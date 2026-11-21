@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.7.0"
+local VERSION = "1.7.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -939,7 +939,7 @@ local function read_buff()
     local palico = palico_buff()
     local timer = attack_up_state()
     local timer_up = (timer ~= nil) and (timer > 0) or nil
-    local sig = tostring(song) .. "/" .. tostring(palico) .. "/" .. tostring(timer)
+    local sig = tostring(song) .. "/" .. tostring(palico) .. "/" .. tostring(timer_up)
     if sig ~= state.buff_sig then
         state.buff_sig = sig
         trace("buff sources: song=" .. tostring(song)
@@ -1043,6 +1043,13 @@ local function install()
                         local id = is_int_overload
                             and safe(function() return sdk.to_int64(args[3]) end) or nil
                         if type(id) == "number" then
+                            if id == HORN_ACTION and not state.firing then
+                                state.append_horn = state.append
+                                if not state.append_horn_logged then
+                                    state.append_horn_logged = true
+                                    trace("AI horn append=" .. tostring(state.append_horn))
+                                end
+                            end
                             if id == HORN_ACTION and not state.firing
                                 and state.cfg.block_ai_use and state.cfg.enabled then
                                 state.blocked = state.blocked + 1
@@ -1749,9 +1756,10 @@ local function fire(reason)
     end
 
     local self = safe(sdk.to_managed_object, state.self)
+    local append = state.append_horn or state.append
     state.firing = true
     local ok, ret = pcall(function()
-        return state.method:call(self, HORN_ACTION, state.append)
+        return state.method:call(self, HORN_ACTION, append)
     end)
     state.firing = false
 
@@ -1765,7 +1773,8 @@ local function fire(reason)
     else
         state.last_result = "error: " .. tostring(ret)
     end
-    trace("fire #" .. state.fires .. " " .. tostring(reason) .. " -> " .. tostring(state.last_result))
+    trace("fire #" .. state.fires .. " " .. tostring(reason)
+        .. " append=" .. tostring(append) .. " -> " .. tostring(state.last_result))
     return ok
 end
 
@@ -2385,7 +2394,7 @@ re.on_frame(function()
                 -- the last fire has not landed yet; the trigger stays armed and
                 -- asks again on the next frame
                 state.last_result = "waiting for the last fire to land"
-            else
+            elseif state.cfg.enabled then
                 handle_request(reason)
             end
         end

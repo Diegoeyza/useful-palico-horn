@@ -1,5 +1,20 @@
 # Changelog
 
+## Useful Palico Horn 1.7.1 — 2026-11-21
+
+The logs now prove the buff reader works: when the Palico used its horn on its
+own (mod disabled), `buff sources: song=true palico=true atkup_timer=19..0` and
+`buff=UP`. The detection layer is correct.
+
+- The AI's own horn request carries the append data that makes the action apply
+  the buff. The hook now captures it from action id 133
+  (`AI horn append=...`) and `fire()` passes it instead of the last arbitrary
+  request's append.
+- Buff source line no longer includes the countdown value (it logged every
+  second and flooded the trace buffer).
+- No request spam while the mod is disabled.
+
+## Useful Palico Horn 1.7.0 — 2026-11-21
 ## Useful Palico Horn 1.7.0 — 2026-11-21
 
 Stutter pass. The diagnostic builds were doing far too much work per frame:
