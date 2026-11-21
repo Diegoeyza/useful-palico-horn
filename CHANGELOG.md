@@ -1,5 +1,14 @@
 # Changelog
 
+## Useful Palico Horn 1.6.4 — 2026-11-21
+
+- `_Type` is a `Nullable<OTOMO_TOOL_HORN_TYPE>`; `Field::set_data(obj, 1)` raises
+  on the nullable wrapper (`forced horn _Type=1: false`). The hook now tries, in
+  order: `obj:set_field`, `Field::set_data`, writing the nullable's `value` +
+  `hasValue` through the field value, and building a `ValueType` for the
+  nullable. The trace names the strategy that worked.
+
+## Useful Palico Horn 1.6.3 — 2026-11-21
 ## Useful Palico Horn 1.6.3 — 2026-11-21
 
 - The action's enter method is **`doEnter()`**. PalicoMod looks it up with that

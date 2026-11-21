@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.3"
+local VERSION = "1.6.4"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -1145,10 +1145,49 @@ local function install_action_hook()
                     local obj = safe(sdk.to_managed_object, args[2])
                     local f = obj and field_descriptor(obj, "_Type")
                     if f ~= nil then
-                        local wrote = pcall(function() return f:set_data(obj, 1) end)
+                        local how = nil
+                        -- 1) managed object field setter
+                        if safe(function() obj:set_field("_Type", 1) return true end) == true then
+                            how = "set_field"
+                        end
+                        -- 2) direct field set
+                        if how == nil and pcall(function() return f:set_data(obj, 1) end) then
+                            how = "set_data"
+                        end
+                        -- 3) write the nullable through its field value
+                        if how == nil then
+                            local dt = safe(function() return f:get_type() end)
+                            local v = dt and safe(function() return f:get_data(obj) end) or nil
+                            if v ~= nil then
+                                local a = pcall(function()
+                                    sdk.set_native_field(v, dt, "value", 1)
+                                end)
+                                local b = pcall(function()
+                                    sdk.set_native_field(v, dt, "hasValue", true)
+                                end)
+                                if a and b then how = "field_value" end
+                            end
+                        end
+                        -- 4) build a Nullable value type and assign it
+                        if how == nil then
+                            local dt = safe(function() return f:get_type() end)
+                            local vt = dt and safe(function() return ValueType.new(dt) end) or nil
+                            if vt ~= nil then
+                                local a = pcall(function()
+                                    sdk.set_native_field(vt, dt, "value", 1)
+                                end)
+                                local b = pcall(function()
+                                    sdk.set_native_field(vt, dt, "hasValue", true)
+                                end)
+                                local c = a and b and pcall(function()
+                                    return f:set_data(obj, vt)
+                                end) or false
+                                if c then how = "valuetype" end
+                            end
+                        end
                         if not state.type_forced then
                             state.type_forced = true
-                            trace("forced horn _Type=1: " .. tostring(wrote))
+                            trace("forced horn _Type=1: " .. tostring(how or "failed"))
                         end
                     end
                 end
