@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.4"
+local VERSION = "1.4.5"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -76,6 +76,7 @@ local state = {
     captures = 0,
 
     buff = nil,
+    buff_sig = nil,
     buff_objs = nil,
     buff_checked = nil,
     buff_checked = 0,
@@ -751,7 +752,28 @@ local function obj_flag(obj, name)
     return nil
 end
 
-local function read_buff()
+-- The buff the mod grants is on the hunter: app.HunterCharacter:get_HunterSkill()
+-- returns app.cHunterSkill, which tracks the Palico's horn song directly
+-- (isOtomoMusicAttackUp / getOtomoMusicSkillTimer). The Palico's own condition
+-- manager only mirrors it when the Palico gets the buff too, so it is the
+-- fallback, not the source.
+local function hunter_music_state()
+    local hunter = local_hunter()
+    if hunter == nil then return nil end
+    local skill = getter(hunter, "get_HunterSkill")
+    if skill == nil then
+        local status = access(hunter, "Status")
+        skill = status and access(status, "Skill") or nil
+    end
+    if skill == nil then return nil end
+
+    local up = obj_flag(skill, "isOtomoMusicAttackUp")
+    if up == nil then return nil end
+    local timer = as_number(getter(skill, "getOtomoMusicSkillTimer"))
+    return up, timer
+end
+
+local function palico_buff()
     if state.buff_objs == nil
         or (state.frames - (state.buff_checked or 0)) > 600 then
         state.buff_objs = collect_buff_objects()
@@ -764,14 +786,30 @@ local function read_buff()
     for _, obj in ipairs(state.buff_objs or {}) do
         for _, name in ipairs(BUFF_METHODS) do
             local v = obj_flag(obj, name)
-            if v == true then
-                state.buff = true
-                return true
-            end
+            if v == true then return true end
             if v == false then any = true end
         end
     end
-    if any then
+    if any then return false end
+    return nil
+end
+
+-- Two sources: the hunter's horn-song skill (authoritative for the buff the mod
+-- grants) and the Palico's condition manager (fallback / cross-check). Any true
+-- wins, so a fire is never refunded while the buff is actually up.
+local function read_buff()
+    local song = hunter_music_state()
+    local palico = palico_buff()
+    local sig = tostring(song) .. "/" .. tostring(palico)
+    if sig ~= state.buff_sig then
+        state.buff_sig = sig
+        trace("buff sources: song=" .. tostring(song)
+            .. " palico=" .. tostring(palico))
+    end
+
+    if song == true or palico == true then
+        state.buff = true
+    elseif song == false or palico == false then
         state.buff = false
     else
         state.buff = nil
@@ -780,7 +818,9 @@ local function read_buff()
 end
 
 local function buff_diagnostic()
-    if state.buff_objs == nil then return "not resolved" end
+    local up, sec = hunter_music_state()
+    local head = "song=" .. tostring(up) .. "/" .. tostring(sec)
+    if state.buff_objs == nil then return head end
     local parts = {}
     for i, obj in ipairs(state.buff_objs) do
         local td = safe(function() return obj:get_type_definition() end)
@@ -789,8 +829,8 @@ local function buff_diagnostic()
             tostring(obj_flag(obj, "isActiveAttackUp")),
             tostring(obj_flag(obj, "isEnableAttackUpIcon")))
     end
-    if #parts == 0 then return "none" end
-    return table.concat(parts, " ")
+    if #parts == 0 then return head end
+    return head .. " | " .. table.concat(parts, " ")
 end
 
 -- ------------------------------------------------------------------ hook ----
@@ -1311,6 +1351,7 @@ local function release_world(why)
     state.append = nil
     state.buff_objs = nil
     state.buff = nil
+    state.buff_sig = nil
     state.buff_checked = 0
     state.boss_ctx, state.boss_em = nil, nil
     state.boss_chara, state.boss_basic, state.boss_status = nil, nil, nil

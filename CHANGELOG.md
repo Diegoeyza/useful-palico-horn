@@ -1,5 +1,20 @@
 # Changelog
 
+## Useful Palico Horn 1.4.5 — 2026-11-20
+
+Buff state showed `down` while the buff was up, so a landed fire could be
+refunded and retried for nothing.
+
+- Buff detection now reads the hunter's horn-song skill:
+  `app.HunterCharacter:get_HunterSkill()` returns `app.cHunterSkill`, which has
+  `isOtomoMusicAttackUp` and `getOtomoMusicSkillTimer`. That is the buff the
+  horn actually grants.
+- The Palico's condition manager (`isActiveAttackUp`) is kept as a fallback and
+  cross-check: either source saying up is up.
+- The trace now logs `buff sources: song=<bool> palico=<bool>` when either
+  changes, and the diag line starts with the song state.
+
+## Useful Palico Horn 1.4.4 — 2026-11-20
 ## Useful Palico Horn 1.4.4 — 2026-11-20
 
 - Retry cap lowered to **2 fires per trigger** (the first attempt plus one
