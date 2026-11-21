@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.7"
+local VERSION = "1.4.8"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -110,6 +110,7 @@ local state = {
     reason_last = {},        -- per-trigger debounce
     dump_requested = false,
     dump_buff_requested = false,
+    dump_at = nil,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
     monster_max = nil,
@@ -1090,6 +1091,10 @@ local function cooldown_left()
     return left
 end
 
+-- Forward declaration: a failed fire dumps the live buff state, and the dump
+-- section is defined below the fire section.
+local dump_buff_state
+
 local function attempt_key(reason)
     if reason == "first hit" then return "first_hit" end
     if reason == "quest start" then return "quest_start" end
@@ -1182,6 +1187,7 @@ local function confirm_fire()
     state.last_result = string.format(
         "fire did not land (%s), cooldown not used", v.reason)
     trace("fire not confirmed: " .. tostring(v.reason) .. " - cooldown not used")
+    dump_buff_state("fire not confirmed: " .. tostring(v.reason))
 
     local k = attempt_key(v.reason)
     local tries = k ~= nil and (state.tries[k] or 0) or 0
@@ -1300,8 +1306,64 @@ local function dump_fields_into(into, label, obj)
     into[label] = rec
 end
 
-local function dump_buff_state()
-    local out = { at = os.time(), version = VERSION, objects = {}, calls = {} }
+-- Every object near the hunter/otomo that exposes an AttackUp/Music method,
+-- with its live flags. Finds the field even if it sits deeper than the normal
+-- buff walk reaches.
+local function dump_candidates(out)
+    local seen, queue, head, tail = {}, {}, 1, 0
+    for _, r in ipairs(buff_roots()) do
+        if r ~= nil then
+            tail = tail + 1
+            queue[tail] = { obj = r, depth = 0 }
+            seen[r] = true
+        end
+    end
+    local nodes = 0
+    out.candidates = {}
+    while head <= tail and nodes < 1200 do
+        local it = queue[head]
+        queue[head] = nil
+        head = head + 1
+        nodes = nodes + 1
+        if safe(function() return sdk.is_managed_object(it.obj) end) == true then
+            local td = safe(function() return it.obj:get_type_definition() end)
+            local hits = {}
+            for _, m in ipairs(safe(function() return td:get_methods() end) or {}) do
+                local n = safe(function() return m:get_name() end)
+                if type(n) == "string" and (n:find("AttackUp", 1, true)
+                    or n:find("OtomoMusic", 1, true)) then
+                    hits[#hits + 1] = n
+                end
+            end
+            if #hits > 0 then
+                out.candidates[#out.candidates + 1] = {
+                    depth = it.depth,
+                    type = td and safe(function() return td:get_full_name() end) or "?",
+                    methods = hits,
+                    active_attack_up = obj_flag(it.obj, "isActiveAttackUp"),
+                    active_attack_up_icon = obj_flag(it.obj, "isEnableAttackUpIcon"),
+                    otomo_music_attack_up = obj_flag(it.obj, "isOtomoMusicAttackUp"),
+                    otomo_music_timer = describe_value(
+                        safe(function() return it.obj:getOtomoMusicSkillTimer() end)),
+                }
+            end
+            if it.depth < 8 then
+                for _, child in ipairs(children_of(it.obj)) do
+                    if not seen[child]
+                        and safe(function() return sdk.is_managed_object(child) end) == true then
+                        seen[child] = true
+                        tail = tail + 1
+                        queue[tail] = { obj = child, depth = it.depth + 1 }
+                    end
+                end
+            end
+        end
+    end
+end
+
+function dump_buff_state(reason)
+    local out = { at = os.time(), version = VERSION, reason = reason,
+        buff = state.buff, objects = {}, calls = {} }
     local hunter = local_hunter_character()
 
     dump_fields_into(out.objects, "hunter", hunter)
@@ -1343,6 +1405,8 @@ local function dump_buff_state()
         end
     end
 
+    dump_candidates(out)
+
     out.palico = { buff = palico_buff(), objects = {} }
     for i, o in ipairs(state.buff_objs or {}) do
         if not o then break end
@@ -1356,7 +1420,7 @@ local function dump_buff_state()
     end
 
     pcall(json.dump_file, "useful_palico_horn_buff.json", out)
-    trace("buff state dumped")
+    trace("buff state dumped (" .. tostring(reason) .. ")")
 end
 
 local function dump_obj(label, obj)
@@ -1516,6 +1580,7 @@ local function release_world(why)
     state.verify = nil
     state.pending_fire = nil
     state.pending_kind = nil
+    state.dump_at = nil
     state.diag_sig = nil
     pcall(function() collectgarbage("collect") end)
     trace("world released (" .. tostring(why) .. ")")
@@ -1545,6 +1610,7 @@ re.on_frame(function()
                     state.retry_at = 0
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                     state.quest_start_at = state.frames + 240   -- ~4 s settle
+                    state.dump_at = state.frames + 360          -- baseline ~6 s
                 end
                 if playing == false then
                     state.quest_start_pending = false
@@ -1613,9 +1679,13 @@ re.on_frame(function()
             state.dump_requested = false
             dump_monster()
         end
+        if state.dump_at ~= nil and state.frames >= state.dump_at then
+            state.dump_at = nil
+            dump_buff_state("quest start baseline")
+        end
         if state.dump_buff_requested then
             state.dump_buff_requested = false
-            dump_buff_state()
+            dump_buff_state("manual")
         end
 
         -- keep-alive: buff down, gated by the global cooldown

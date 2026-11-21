@@ -1,5 +1,15 @@
 # Changelog
 
+## Useful Palico Horn 1.4.8 — 2026-11-20 (diagnostic)
+
+- The buff has no HUD icon in game (only a red VFX), so the dump now runs
+  **automatically**: a baseline ~6 s after quest start and again when a fire
+  fails to register - the moment the buff is up.
+- The dump scans every reachable object near the hunter/otomo up to depth 8 and
+  records any object exposing an `AttackUp`/`OtomoMusic` method, with live
+  values.
+
+## Useful Palico Horn 1.4.7 — 2026-11-20 (diagnostic)
 ## Useful Palico Horn 1.4.7 — 2026-11-20 (diagnostic)
 
 - Both known buff sources (`cHunterSkill:isOtomoMusicAttackUp` and the Palico
