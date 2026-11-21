@@ -1,5 +1,17 @@
 # Changelog
 
+## Useful Palico Horn 1.5.2 — 2026-11-20
+
+- The character resolved through `getMasterPlayer()` is a wrapper: its
+  `get_HunterStatus()` returns nil, which is why the status layer never appeared
+  in any dump. Resolve the local player the way `meal_buffet.lua` /
+  `hunt_dumper.lua` do: `_InstancedPlayerList` -> `get_PlayerInfo` ->
+  `get_Character`, keep the one whose status has `IsUserControl`.
+- The action hook now matches `useHornActionDoEnter` across the method list
+  (`get_method` missed it).
+- Trace logs `hunter object: <type> status=true/false` once.
+
+## Useful Palico Horn 1.5.1 — 2026-11-20 (diagnostic)
 ## Useful Palico Horn 1.5.1 — 2026-11-20 (diagnostic)
 
 - The tool object captured from the AI's evaluation exposes no primitive fields,

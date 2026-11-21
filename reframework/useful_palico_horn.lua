@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -693,14 +693,54 @@ local function local_hunter()
     return getter(pm, "getMasterPlayer")
 end
 
--- local_hunter() returns app.cPlayerManageInfo on this build, not the character.
--- The HunterCharacter (and its cHunterSkill) hangs off Character/Get_Character.
+-- The character found through getMasterPlayer() can be a wrapper whose real
+-- character is elsewhere, and its get_HunterStatus returns nil. Other mods in
+-- this folder resolve the local player through _InstancedPlayerList and check
+-- IsUserControl on the status instead; that path is proven on this build.
+local function character_from(inst)
+    local pi = getter(inst, "get_PlayerInfo") or inst
+    for _, name in ipairs({ "get_Character", "get_Hunter", "get_Player" }) do
+        local v = getter(pi, name)
+        if v ~= nil then return v end
+    end
+    return field_value(inst, "<Character>k__BackingField")
+        or field_value(inst, "_Character")
+end
+
+local function user_character()
+    local pm = safe(sdk.get_managed_singleton, "app.PlayerManager")
+    if pm == nil then return nil end
+    local list = field_value(pm, "_InstancedPlayerList")
+    if list == nil then return nil end
+    local arr = field_value(list, "_Array") or field_value(list, "_Items") or list
+    for i = 0, 7 do
+        local inst = safe(function() return arr[i] end)
+        if inst == nil then break end
+        local ch = character_from(inst)
+        if ch ~= nil then
+            local st = getter(ch, "get_HunterStatus")
+            if st ~= nil
+                and getter(st, "get_IsUserControl") == true
+                and getter(st, "get_IsNpc") ~= true then
+                return ch
+            end
+        end
+    end
+    return nil
+end
+
 local function local_hunter_character()
+    local ch = user_character()
+    if ch ~= nil then return ch end
     local info = local_hunter()
     if info == nil then return nil end
     if method0(info, "get_HunterSkill") ~= nil then return info end
     local character = getter(info, "get_Character")
-    if character ~= nil then return character end
+    if character ~= nil then
+        local wrapped = field_value(character, "<Character>k__BackingField")
+            or field_value(character, "_Character")
+        return wrapped or character
+    end
     return info
 end
 
@@ -788,7 +828,8 @@ local function hunter_music_state()
     if state.hunter_type == nil then
         local td = safe(function() return hunter:get_type_definition() end)
         state.hunter_type = td and safe(function() return td:get_full_name() end) or "?"
-        trace("hunter object: " .. tostring(state.hunter_type))
+        trace("hunter object: " .. tostring(state.hunter_type)
+            .. " status=" .. tostring(getter(hunter, "get_HunterStatus") ~= nil))
     end
 
     local skill = getter(hunter, "get_HunterSkill")
@@ -1037,7 +1078,13 @@ local function install_action_hook()
         trace("action hook: " .. state.action_hook)
         return
     end
-    local m = safe(function() return td:get_method("useHornActionDoEnter") end)
+    local m = nil
+    for _, cand in ipairs(safe(function() return td:get_methods() end) or {}) do
+        if safe(function() return cand:get_name() end) == "useHornActionDoEnter" then
+            m = cand
+            break
+        end
+    end
     if m == nil then
         state.action_hook = "method not found"
         trace("action hook: " .. state.action_hook)
