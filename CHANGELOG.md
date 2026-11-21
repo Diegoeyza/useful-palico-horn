@@ -1,5 +1,17 @@
 # Changelog
 
+## Useful Palico Horn 1.6.3 — 2026-11-21
+
+- The action's enter method is **`doEnter()`**. PalicoMod looks it up with that
+  exact string on `app.OtomoCommonAction.cUseHorn`; its "useHornActionDoEnter"
+  wording is only in the log messages, which sent us after a method name that
+  does not exist. Hook `doEnter()` directly and every doEnter/useHorn variant in
+  the hierarchy.
+- `_Type` is `System.Nullable<app.OtomoDef.OTOMO_TOOL_HORN_TYPE>`; PalicoMod
+  writes hasValue=true + value=1 (byte 1 at offset 0, int 1 at offset 4). The
+  hook writes 1 via `Field::set_data` and logs the result.
+
+## Useful Palico Horn 1.6.2 — 2026-11-21
 ## Useful Palico Horn 1.6.2 — 2026-11-21
 
 PalicoMod (Nexus 627) does one thing we were missing, visible in its

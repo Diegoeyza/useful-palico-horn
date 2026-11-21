@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.2"
+local VERSION = "1.6.3"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -1104,8 +1104,31 @@ local function install_action_hook()
     end
     trace("cUseHorn fields: " .. table.concat(parts, " "))
 
+    -- PalicoMod looks this up as "doEnter()" on the action type (its error
+    -- message calls it useHornActionDoEnter). Collect doEnter/useHornAction*
+    -- variants across the hierarchy and hook every match.
+    local names = {}
     local list = {}
-    collect(td, "useHornActionDoEnter", list, 0)
+    local walk2, depth2 = td, 0
+    while walk2 ~= nil and depth2 < 6 do
+        for _, m in ipairs(safe(function() return walk2:get_methods() end) or {}) do
+            local n = safe(function() return m:get_name() end)
+            if type(n) == "string" then
+                local low = n:lower()
+                if low:find("doenter", 1, true)
+                    or low:find("usehorn", 1, true) then
+                    names[#names + 1] = n .. "/" .. tostring(safe(function() return m:get_num_params() end))
+                    list[#list + 1] = m
+                end
+            end
+        end
+        walk2 = safe(function() return walk2:get_parent_type() end)
+        depth2 = depth2 + 1
+    end
+    trace("cUseHorn enter methods: " .. table.concat(names, " "))
+
+    local direct = safe(function() return td:get_method("doEnter()") end)
+    if direct ~= nil then list[#list + 1] = direct end
     if #list == 0 then
         state.action_hook = "method not found"
         trace("action hook: " .. state.action_hook)
