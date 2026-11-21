@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.1.9"
+local VERSION = "1.3.0"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -43,6 +43,7 @@ local state = {
         hotkey = "599",          -- "." on this build: unused by the game
         min_interval_sec = 0.5,
         auto_when_down = false,
+        block_ai_use = true,
         use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
@@ -85,6 +86,11 @@ local state = {
     quest_start_pending = false,
     quest_start_at = nil,
     diag_sig = nil,
+    ours_until = 0,
+    uses_ai = 0,
+    uses_ours = 0,
+    blocked = 0,
+    use_hook = "not tried",
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -142,6 +148,7 @@ local function load_config()
         c.min_interval_sec = math.max(0, math.min(10, raw.min_interval_sec))
     end
     if raw.auto_when_down ~= nil then c.auto_when_down = raw.auto_when_down == true end
+    if raw.block_ai_use ~= nil then c.block_ai_use = raw.block_ai_use == true end
     if raw.use_base_cooldown ~= nil then
         c.use_base_cooldown = raw.use_base_cooldown == true
     end
@@ -1015,6 +1022,7 @@ local function fire(reason)
     end)
 
     state.fires = state.fires + 1
+    state.ours_until = state.frames + 600   -- ~10 s: our action may resolve late
     state.last_fire_frame = state.frames
     state.last_fire_time = os.time()
     state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
@@ -1152,11 +1160,44 @@ local function dump_monster()
     trace("monster dump written")
 end
 
+-- The Palico's AI can play the horn itself, gated only by the game's cooldown.
+-- Suppressing its desire does not stop it (verified), so the block goes on the
+-- tool's use call: any use outside the window opened by our own fire is skipped.
+-- This is the risky one - a skipped use can leave a tool waiting - so it is a
+-- toggle, and every block is counted and traced.
+local USE_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
+
+local function install_use_hook()
+    if state.use_hook ~= "not tried" then return end
+    local td = safe(sdk.find_type_definition, USE_TYPE)
+    if td == nil then state.use_hook = "type not found" return end
+    local m = safe(function() return td:get_method("useOtomoTool") end)
+    if m == nil then state.use_hook = "method not found" return end
+    local ok = pcall(function()
+        sdk.hook(m, function(args)
+            if state.frames <= state.ours_until then
+                state.uses_ours = state.uses_ours + 1
+                return
+            end
+            state.uses_ai = state.uses_ai + 1
+            if state.cfg.block_ai_use and state.cfg.enabled then
+                state.blocked = state.blocked + 1
+                state.last_result = "blocked the Palico's own horn use"
+                trace("blocked AI horn use #" .. state.blocked)
+                return sdk.PreHookResult.SKIP_ORIGINAL
+            end
+        end, function(retval) return retval end)
+    end)
+    state.use_hook = ok and "installed" or "hook failed"
+    trace("use hook: " .. tostring(state.use_hook))
+end
+
 -- ----------------------------------------------------------------- frame ----
 
 re.on_frame(function()
     local ok, err = pcall(function()
         install()
+        install_use_hook()
         state.frames = state.frames + 1
 
         if state.frames % 600 == 0 then state.buff_objs = nil end
@@ -1281,9 +1322,10 @@ re.on_frame(function()
             local monv = state.monster_state == true and "damaged"
                 or (state.monster_state == false and "full" or "?")
             trace(string.format(
-                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | trap=%s stun=%s para=%s",
+                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | ours=%d ai=%d blocked=%d | trap=%s stun=%s para=%s",
                 tostring(state.hook_note), state.captures, buffv, monv,
                 state.fires, tostring(state.last_result),
+                state.uses_ours, state.uses_ai, state.blocked,
                 tostring(state.cond.trapped), tostring(state.cond.stunned),
                 tostring(state.cond.paralyzed)))
         end
@@ -1369,6 +1411,9 @@ local function draw_body()
 
     changed, state.cfg.auto_when_down =
         imgui.checkbox("When the buff runs out", state.cfg.auto_when_down)
+    if changed then save_config() end
+    changed, state.cfg.block_ai_use =
+        imgui.checkbox("Block the Palico's own horn use", state.cfg.block_ai_use)
     if changed then save_config() end
 
     imgui.separator()

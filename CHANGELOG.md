@@ -1,5 +1,21 @@
 # Changelog
 
+## Useful Palico Horn 1.3.0 — 2026-11-20 (experimental)
+
+Blocking the Palico's own horn use, on the tool's **use** call instead of its
+desire (returning false from `isDesireActivate` does not stop the AI - verified
+in game, the AI dooted anyway).
+
+- Hook `cOtomoToolManaged_Horn_AtkUp:useOtomoTool`. Any use outside the ~10 s
+  window opened by one of our own fires is skipped (`SKIP_ORIGINAL`).
+- Toggle: "Block the Palico's own horn use" (on by default).
+- Counters in the status line: `ours= ai= blocked=`, plus a trace line per
+  blocked use.
+- **Experimental**: a skipped use can plausibly leave the tool waiting, so if
+  the Palico behaves oddly, untick the box; the block stops immediately (the
+  hook stays but returns to normal).
+
+
 ## Useful Palico Horn 1.1.9 — 2026-11-20
 
 Reported: the horn could be used twice inside one quest, well under 8 minutes.
