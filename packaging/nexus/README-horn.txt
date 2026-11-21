@@ -49,6 +49,10 @@ Triggers
 
 Each fires once per event, not continuously.
 
+While enabled, the mod also **blocks the Palico's own horn use**, so the
+cooldown is absolute: the AI cannot spend it behind your back. Untick "Block the
+Palico's own horn use" to let the game use the horn on its own schedule again.
+
 Hotkey
 ------
 The default is . (period), which the game does not use.

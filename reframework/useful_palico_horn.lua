@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -86,14 +86,7 @@ local state = {
     quest_start_pending = false,
     quest_start_at = nil,
     diag_sig = nil,
-    allow_use = 0,           -- one use credit, consumed by our own fire
-    allow_until = 0,
-    uses_ai = 0,
-    uses_ours = 0,
     blocked = 0,
-    use_hook = "not tried",
-    ids = {},
-    last_id = nil,
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -851,17 +844,6 @@ local function install()
                         local id = is_int_overload
                             and safe(function() return sdk.to_int64(args[3]) end) or nil
                         if type(id) == "number" then
-                            if state.ids[id] == nil then
-                                state.ids[id] = 0
-                                trace("action id " .. tostring(id) .. " first seen")
-                            end
-                            state.ids[id] = state.ids[id] + 1
-                            if id ~= state.last_id then
-                                state.last_id = id
-                                trace("action id " .. tostring(id)
-                                    .. " (ours=" .. tostring(state.firing) .. ")")
-                            end
-
                             if id == HORN_ACTION and not state.firing
                                 and state.cfg.block_ai_use and state.cfg.enabled then
                                 state.blocked = state.blocked + 1
@@ -1051,8 +1033,6 @@ local function fire(reason)
     state.firing = false
 
     state.fires = state.fires + 1
-    state.allow_use = (state.allow_use or 0) + 1
-    state.allow_until = state.frames + 900   -- ~15 s for the action to resolve
     state.last_fire_frame = state.frames
     state.last_fire_time = os.time()
     state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
@@ -1190,45 +1170,11 @@ local function dump_monster()
     trace("monster dump written")
 end
 
--- The Palico's AI can play the horn itself, gated only by the game's cooldown.
--- Suppressing its desire does not stop it (verified), so the block goes on the
--- tool's use call: any use outside the window opened by our own fire is skipped.
--- This is the risky one - a skipped use can leave a tool waiting - so it is a
--- toggle, and every block is counted and traced.
-local USE_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
-
-local function install_use_hook()
-    if state.use_hook ~= "not tried" then return end
-    local td = safe(sdk.find_type_definition, USE_TYPE)
-    if td == nil then state.use_hook = "type not found" return end
-    local m = safe(function() return td:get_method("useOtomoTool") end)
-    if m == nil then state.use_hook = "method not found" return end
-    local ok = pcall(function()
-        sdk.hook(m, function(args)
-            if state.allow_use > 0 and state.frames <= state.allow_until then
-                state.allow_use = state.allow_use - 1
-                state.uses_ours = state.uses_ours + 1
-                return
-            end
-            state.uses_ai = state.uses_ai + 1
-            if state.cfg.block_ai_use and state.cfg.enabled then
-                state.blocked = state.blocked + 1
-                state.last_result = "blocked the Palico's own horn use"
-                trace("blocked AI horn use #" .. state.blocked)
-                return sdk.PreHookResult.SKIP_ORIGINAL
-            end
-        end, function(retval) return retval end)
-    end)
-    state.use_hook = ok and "installed" or "hook failed"
-    trace("use hook: " .. tostring(state.use_hook))
-end
-
 -- ----------------------------------------------------------------- frame ----
 
 re.on_frame(function()
     local ok, err = pcall(function()
         install()
-        install_use_hook()
         state.frames = state.frames + 1
 
         if state.frames % 600 == 0 then state.buff_objs = nil end
@@ -1353,10 +1299,10 @@ re.on_frame(function()
             local monv = state.monster_state == true and "damaged"
                 or (state.monster_state == false and "full" or "?")
             trace(string.format(
-                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | ours=%d ai=%d blocked=%d | trap=%s stun=%s para=%s",
+                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | blocked=%d | trap=%s stun=%s para=%s",
                 tostring(state.hook_note), state.captures, buffv, monv,
                 state.fires, tostring(state.last_result),
-                state.uses_ours, state.uses_ai, state.blocked,
+                state.blocked,
                 tostring(state.cond.trapped), tostring(state.cond.stunned),
                 tostring(state.cond.paralyzed)))
         end

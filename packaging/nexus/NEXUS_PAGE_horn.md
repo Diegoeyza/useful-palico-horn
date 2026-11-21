@@ -1,6 +1,6 @@
-# Nexus page — Useful Palico Horn v1.1.9
+# Nexus page — Useful Palico Horn v1.4.1
 
-Upload `dist/UsefulPalicoHorn-1.1.9.zip` as the main file (Vortex/Fluffy-ready
+Upload `dist/UsefulPalicoHorn-1.4.1.zip` as the main file (Vortex/Fluffy-ready
 layout).
 
 The Nexus description field uses **BBCode** (not Markdown). Paste the blocks
@@ -48,6 +48,10 @@ This mod gives you the timing. The horn is the Palico's own horn: the game still
 [/list]
 
 Each event trigger fires once per event, not continuously.
+
+While enabled, the mod also blocks the Palico's own horn use, so the cooldown is
+absolute: the AI cannot play it on the game's schedule behind your back. Untick
+[b]Block the Palico's own horn use[/b] to let the game use it normally.
 
 [line]
 
@@ -123,7 +127,7 @@ Advanced: the value is stored raw in [code]reframework\data\useful_palico_horn.j
 
 [size=5][b]Changelog[/b][/size]
 
-[b]1.1.9[/b] - first public release
+[b]1.4.1[/b] - first public release
 [list]
 [*]Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
 [*]Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
@@ -146,7 +150,7 @@ Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.c
 **Changelog field:**
 
 ```
-1.1.9 - first public release
+1.4.1 - first public release
 - Fires the Palico's Attack-Up horn on command: hotkey, button, first hit, quest start, trapped, stunned, paralyzed, or when the buff runs out.
 - Base-game 8 minute cooldown, or any value you choose. One gate for every trigger: nothing fires while the countdown runs.
 - The cooldown resets at the start of each quest.
@@ -154,7 +158,7 @@ Source and issues: [url=https://github.com/Diegoeyza/useful-palico-horn]github.c
 - Live buff state (buff: UP / down).
 ```
 
-**File to upload:** `dist/UsefulPalicoHorn-1.1.9.zip`
+**File to upload:** `dist/UsefulPalicoHorn-1.4.1.zip`
 
 **Suggested Nexus metadata:**
 - Category: Gameplay

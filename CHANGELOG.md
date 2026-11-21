@@ -1,5 +1,22 @@
 # Changelog
 
+## Useful Palico Horn 1.4.1 — 2026-11-20
+
+The AI's own horn use is now blocked, and it is a clean block.
+
+- The Palico requests its horn as **action id 133** through the same
+  `setActionRequest` we use (`action id 133 (ours=false)` in the trace). Our own
+  fire is the same id with `ours=true`, so the two are distinguishable at the
+  call site.
+- `setActionRequest(133)` from the AI is skipped (`SKIP_ORIGINAL`) while
+  "Block the Palico's own horn use" is on. Verified in game: two AI requests
+  blocked, no buff applied, and the Palico kept acting (`captures` climbing).
+- Removed the failed experiments and their scaffolding: the `isDesireActivate`
+  hook (does not block, can stall evaluations), the `useOtomoTool` skip (the
+  buff applied anyway - bookkeeping, not the effect path), the use-credit
+  window and the action-id tracing.
+
+
 ## Useful Palico Horn 1.3.0 — 2026-11-20 (experimental)
 
 Blocking the Palico's own horn use, on the tool's **use** call instead of its
