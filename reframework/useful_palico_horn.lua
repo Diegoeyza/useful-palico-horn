@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.9"
+local VERSION = "1.5.0"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -67,6 +67,9 @@ local state = {
 
     frames = 0,
     hook_note = "not tried",
+    tool_hook = "not tried",
+    tool_self = nil,
+    tool_fields = nil,
     method = nil,
     method_desc = nil,
 
@@ -626,7 +629,7 @@ end
 -- The horn's shipping cooldown is 8 minutes. Do NOT read _CoolTime from the
 -- tool params: that is user data, so Otomo Tools rewrites it (to 30 s in our
 -- tests) and this would report the edit back instead of the game default.
-local BASE_GAME_COOLDOWN = 480
+local BASE_GAME_COOLDOWN = 600
 
 local function read_base_cooldown()
     return BASE_GAME_COOLDOWN
@@ -959,6 +962,92 @@ local function install()
         state.hook_note = "hooked " .. hooked
     end
     trace("install: " .. tostring(state.hook_note) .. " call=" .. tostring(state.method_desc))
+end
+
+-- The tool object carries the game's own cooldown for the horn. Capture it from
+-- the AI's own evaluation (read-only) and watch its numeric fields, so the mod
+-- can stop firing while the game would refuse the buff.
+local USE_TYPE = "app.cOtomoToolManaged_Horn_AtkUp"
+
+local function install_tool_hook()
+    if state.tool_hook ~= "not tried" then return end
+    local td = safe(sdk.find_type_definition, USE_TYPE)
+    if td == nil then
+        state.tool_hook = "type not found"
+        trace("tool hook: " .. state.tool_hook)
+        return
+    end
+    local installed = 0
+    for _, name in ipairs({ "isDesireActivate", "useOtomoTool" }) do
+        local m = safe(function() return td:get_method(name) end)
+        if m ~= nil then
+            local ok = pcall(function()
+                sdk.hook(m, function(args)
+                    if args ~= nil and args[2] ~= nil then
+                        state.tool_self = args[2]
+                    end
+                end, function(retval) return retval end)
+            end)
+            if ok then installed = installed + 1 end
+        end
+    end
+    state.tool_hook = "installed " .. installed
+    trace("tool hook: " .. state.tool_hook)
+end
+
+local function tool_state()
+    if state.tool_self == nil then return nil end
+    return safe(sdk.to_managed_object, state.tool_self)
+end
+
+local function tool_fields_of(obj)
+    local out = {}
+    local td = safe(function() return obj:get_type_definition() end)
+    local walk, depth = td, 0
+    while walk ~= nil and depth < 6 do
+        for _, f in ipairs(safe(function() return walk:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            if n ~= nil and out[n] == nil then
+                local v = safe(function() return f:get_data(obj) end)
+                if type(v) == "number" or type(v) == "boolean" or type(v) == "string" then
+                    out[n] = v
+                end
+            end
+        end
+        walk = safe(function() return walk:get_parent_type() end)
+        depth = depth + 1
+    end
+    return out
+end
+
+local function tool_scan()
+    local obj = tool_state()
+    if obj == nil then return end
+    local fields = tool_fields_of(obj)
+    local prev = state.tool_fields
+    state.tool_fields = fields
+    if prev == nil then
+        local parts = {}
+        for k, v in pairs(fields) do
+            if type(v) == "number" then
+                parts[#parts + 1] = k .. "=" .. string.format("%.2f", v)
+            end
+        end
+        table.sort(parts)
+        trace("tool fields: " .. table.concat(parts, " "))
+        return
+    end
+    local changes = {}
+    for k, v in pairs(fields) do
+        local before = prev[k]
+        if type(v) == "number" and type(before) == "number" and before ~= v then
+            changes[#changes + 1] = k .. " " .. string.format("%.2f->%.2f", before, v)
+        end
+    end
+    if #changes > 0 then
+        table.sort(changes)
+        trace("tool: " .. table.concat(changes, " "))
+    end
 end
 
 -- ----------------------------------------------------------------- input ----
@@ -1406,6 +1495,8 @@ function dump_buff_state(reason)
         end
     end
 
+    out.tool_hook = state.tool_hook
+    out.tool_fields = state.tool_fields
     dump_candidates(out)
 
     out.palico = { buff = palico_buff(), objects = {} }
@@ -1584,6 +1675,8 @@ local function release_world(why)
     state.pending_fire = nil
     state.pending_kind = nil
     state.dump_at = nil
+    state.tool_self = nil
+    state.tool_fields = nil
     state.diag_sig = nil
     pcall(function() collectgarbage("collect") end)
     trace("world released (" .. tostring(why) .. ")")
@@ -1592,6 +1685,7 @@ end
 re.on_frame(function()
     local ok, err = pcall(function()
         install()
+        install_tool_hook()
         state.frames = state.frames + 1
 
         -- quest state first: the world objects are released the moment the
@@ -1636,6 +1730,7 @@ re.on_frame(function()
             if state.frames % 30 == 0 then monster_scan() end
         end
 
+        if state.frames % 60 == 0 then tool_scan() end
         confirm_fire()
         if state.frames % 300 == 0 then state.base_cooldown = read_base_cooldown() end
 

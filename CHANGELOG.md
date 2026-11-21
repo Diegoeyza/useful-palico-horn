@@ -1,5 +1,19 @@
 # Changelog
 
+## Useful Palico Horn 1.5.0 — 2026-11-20
+
+A clean 1.1.8 also stops producing the buff, so the game is refusing the horn,
+not the mod failing to read it.
+
+- The horn tool's `_CoolTime` is **600 s** in the shipping build (Otomo Tools
+  note: `_Horn_AtkUp._CoolTime = 600`, `_CoolTime_PowerUp = 480`), not 480. Base
+  cooldown corrected to 600.
+- Hooks `cOtomoToolManaged_Horn_AtkUp:isDesireActivate` / `useOtomoTool`
+  read-only to capture the tool object, then logs its numeric fields (first
+  sight, then changes) so the remaining-cooldown field can be identified.
+- The buff dump now includes the tool fields.
+
+## Useful Palico Horn 1.4.9 — 2026-11-20 (diagnostic)
 ## Useful Palico Horn 1.4.9 — 2026-11-20 (diagnostic)
 
 - Dumps are now numbered (`useful_palico_horn_buff_1.json`, `_2.json`, ...) so the
