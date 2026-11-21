@@ -1,5 +1,24 @@
 # Changelog
 
+## Useful Palico Horn 1.4.2 — 2026-11-20
+
+The cooldown is only spent when the buff actually lands.
+
+- A fire is now **verified**: the timer starts when the buff is seen and has
+  stayed up for ~2 s, not when the action request is sent. `fires=` counts
+  attempts, `ok=` counts confirmed buffs.
+- If the request is refused before the horn plays - a monster roar cancelling
+  the animation, or a quest-start fire sent before the world has loaded - the
+  cooldown is **refunded** and the trigger stays armed. `fire not confirmed:
+  (reason) - cooldown not used` in the trace.
+- First hit and quest start retry after ~5 s, up to 3 attempts, then give up
+  (so a mod without the Attack-Up horn does not loop).
+- Quest start additionally waits for the monster to exist, which means the
+  quest world is loaded, and clears the captured Palico after a failed attempt
+  so the retry uses the live object.
+- Unconfirmed fires hold the next one: no second request while the buff is
+  still being awaited.
+
 ## Useful Palico Horn 1.4.1 — 2026-11-20
 
 The AI's own horn use is now blocked, and it is a clean block.

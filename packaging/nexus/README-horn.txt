@@ -49,6 +49,10 @@ Triggers
 
 Each fires once per event, not continuously.
 
+The cooldown only starts once the buff is confirmed. If a roar cancels the horn,
+or the quest-start request lands before the world has loaded, the fire is
+refunded and the trigger tries again a few seconds later.
+
 While enabled, the mod also **blocks the Palico's own horn use**, so the
 cooldown is absolute: the AI cannot spend it behind your back. Untick "Block the
 Palico's own horn use" to let the game use the horn on its own schedule again.

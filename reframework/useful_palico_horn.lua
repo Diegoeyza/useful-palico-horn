@@ -14,6 +14,10 @@
   The tool's desire gate, cooldown and ~4 min refractory are not involved: this
   is the action layer. Verified repeating, and after the buff expires.
 
+  A fire only costs the cooldown once the buff is seen: the request can be
+  cancelled by a roar or dropped before the quest has loaded, so a fire that
+  never lands is refunded and its event trigger tries again a few seconds later.
+
   Triggers
   --------
     - hotkey (default F6) or the panel button          -- always available
@@ -28,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.1"
+local VERSION = "1.4.2"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -36,6 +40,13 @@ local TRACE_FILE = "useful_palico_horn_trace.json"
 local HORN_ACTION = 0x85
 local ACTION_TYPE = "app.OtomoCharacter"
 local METHOD_NAME = "setActionRequest"
+
+-- A request is not a buff. A roar cancels the horn animation, and a request
+-- sent before the quest has loaded is dropped, so the cooldown is only spent
+-- once the buff has been seen and stayed up for a moment.
+local VERIFY_TIMEOUT = 480     -- ~8 s to see the buff at all
+local VERIFY_HOLD = 120        -- ~2 s of it staying up
+local RETRY_FRAMES = 300       -- ~5 s before a cancelled trigger tries again
 
 local state = {
     cfg = {
@@ -99,6 +110,10 @@ local state = {
     chain_logged = false,
 
     fires = 0,
+    confirmed = 0,
+    verify = nil,            -- { reason, at, seen } while a fire is unproven
+    retry_at = 0,
+    tries = { first_hit = 0, quest_start = 0 },
     last_result = "-",
     last_fire_frame = 0,
     last_fire_time = nil,
@@ -1004,10 +1019,23 @@ local function cooldown_left()
     return left
 end
 
+local function attempt_key(reason)
+    if reason == "first hit" then return "first_hit" end
+    if reason == "quest start" then return "quest_start" end
+    return nil
+end
+
 local function fire(reason)
     local why = ready_reason()
     if why ~= nil then
         state.last_result = "skipped: " .. why
+        return false
+    end
+
+    -- an unconfirmed fire holds the next one: its cooldown has not started, so
+    -- the gate below would be wide open
+    if state.verify ~= nil then
+        state.last_result = "waiting for the last fire to land"
         return false
     end
 
@@ -1034,11 +1062,108 @@ local function fire(reason)
 
     state.fires = state.fires + 1
     state.last_fire_frame = state.frames
-    state.last_fire_time = os.time()
-    state.last_result = ok and ("fired (" .. tostring(reason) .. ")")
-        or ("error: " .. tostring(ret))
+    if ok then
+        local k = attempt_key(reason)
+        if k ~= nil then state.tries[k] = (state.tries[k] or 0) + 1 end
+        state.verify = { reason = reason, at = state.frames }
+        state.last_result = "fired (" .. tostring(reason) .. "), waiting for the buff"
+    else
+        state.last_result = "error: " .. tostring(ret)
+    end
     trace("fire #" .. state.fires .. " " .. tostring(reason) .. " -> " .. tostring(state.last_result))
     return ok
+end
+
+-- The request can be refused before the horn plays: a roar interrupts the
+-- animation, and before the quest has loaded the action is dropped. Neither
+-- produced a buff, so neither may spend the cooldown. Wait for the buff, make
+-- sure it holds, and only then start the timer.
+local function confirm_fire()
+    local v = state.verify
+    if v == nil then return end
+
+    if state.buff == true then
+        if v.seen == nil then v.seen = state.frames end
+        if state.frames - v.seen >= VERIFY_HOLD then
+            state.verify = nil
+            state.confirmed = state.confirmed + 1
+            state.last_fire_time = os.time()
+            state.last_result = string.format("fired (%s), buff up", v.reason)
+            trace(string.format("fire confirmed: %s, buff up after %.1f s",
+                tostring(v.reason), (state.frames - v.at) / 60))
+            -- latch the event triggers only now; a cancelled fire must be able
+            -- to try again
+            local k = attempt_key(v.reason)
+            if k ~= nil then state.tries[k] = 0 end
+            if v.reason == "first hit" then state.first_hit_done = true end
+            if v.reason == "quest start" then state.quest_start_pending = false end
+        end
+        return
+    end
+
+    -- the buff was seen and dropped again (the animation was interrupted), so
+    -- keep waiting inside the timeout
+    if v.seen ~= nil then v.seen = nil end
+    if state.frames - v.at < VERIFY_TIMEOUT then return end
+
+    state.verify = nil
+    state.reason_last[v.reason] = nil
+    state.last_result = string.format(
+        "fire did not land (%s), cooldown not used", v.reason)
+    trace("fire not confirmed: " .. tostring(v.reason) .. " - cooldown not used")
+
+    local k = attempt_key(v.reason)
+    local tries = k ~= nil and (state.tries[k] or 0) or 0
+    if k == nil then return end
+    if tries >= 3 then
+        trace("giving up on " .. tostring(v.reason) .. " after "
+            .. tostring(tries) .. " attempts")
+        if v.reason == "first hit" then
+            state.first_hit_done = true
+        else
+            state.quest_start_pending = false
+        end
+        return
+    end
+
+    if v.reason == "first hit" then
+        state.first_hit_done = false
+        state.retry_at = state.frames + RETRY_FRAMES
+    else
+        -- the object captured before the quest loaded is the likely cause, so
+        -- make the retry wait for a fresh capture
+        state.self = nil
+        state.quest_start_pending = true
+        state.quest_start_at = state.frames + RETRY_FRAMES
+    end
+end
+
+-- One place for the debounce/cooldown/fire chain, so the pending-fire block in
+-- the frame loop stays readable.
+local function handle_request(reason)
+    if state.last_req_reason ~= reason
+        or (state.frames - (state.last_req_frame or 0)) > 60 then
+        state.last_req_reason = reason
+        state.last_req_frame = state.frames
+        trace("request: " .. tostring(reason))
+    end
+
+    local left = cooldown_left()
+    local last = state.reason_last[reason]
+    local since = last ~= nil and (state.frames - last) or 999999
+    if since < 180 then
+        state.last_result = string.format("%s debounced (%d s)", reason,
+            math.floor(since / 60))
+        trace("debounced: " .. tostring(reason))
+    elseif left > 0 then
+        state.last_result = string.format("held by cooldown: %d s left", left)
+        trace("held by cooldown: " .. tostring(reason))
+    else
+        -- latching happens in confirm_fire, never on the request alone
+        if fire(reason) then
+            state.reason_last[reason] = state.frames
+        end
+    end
 end
 
 -- ------------------------------------------------------------------ dump ----
@@ -1179,6 +1304,7 @@ re.on_frame(function()
 
         if state.frames % 600 == 0 then state.buff_objs = nil end
         if state.frames % 15 == 0 then read_buff() end
+        confirm_fire()
         if state.frames % 150 == 0 then
             local diag = buff_diagnostic()
             if diag ~= state.diag_sig then
@@ -1197,6 +1323,9 @@ re.on_frame(function()
                     state.first_hit_done = false
                     state.reason_last = {}
                     state.buff_objs = nil
+                    state.verify = nil
+                    state.retry_at = 0
+                    state.tries = { first_hit = 0, quest_start = 0 }
                     state.quest_start_pending = state.cfg.fire_on_quest_start
                     state.quest_start_at = state.frames + 240   -- ~4 s settle
                 end
@@ -1216,9 +1345,11 @@ re.on_frame(function()
         end
 
         -- event trigger: first damage to the monster
-        if state.cfg.fire_on_first_hit and state.pending_fire == nil then
+        if state.cfg.fire_on_first_hit and state.pending_fire == nil
+            and state.frames >= (state.retry_at or 0) then
             if state.monster_state == false then
                 state.first_hit_done = false     -- full hp again: new hunt/monster
+                state.tries.first_hit = 0
             elseif state.monster_state == true and state.first_hit_done == false
                 and state.self ~= nil then
                 state.pending_fire = "first hit"
@@ -1226,10 +1357,11 @@ re.on_frame(function()
             end
         end
 
-        -- quest start: stays armed until the Palico has been captured and the
-        -- horn actually fires (exempt from the cooldown)
+        -- quest start: armed until a fire is actually confirmed; the monster has
+        -- to exist first, which means the quest world is loaded
         if state.cfg.fire_on_quest_start and state.quest_start_pending
             and state.pending_fire == nil and state.self ~= nil
+            and state.monster_state ~= nil
             and state.frames >= (state.quest_start_at or 0) then
             state.pending_fire = "quest start"
             state.pending_kind = "event"
@@ -1251,7 +1383,8 @@ re.on_frame(function()
 
         -- keep-alive: buff down, gated by the global cooldown
         if state.cfg.auto_when_down and state.buff == false
-            and state.pending_fire == nil and cooldown_left() == 0 then
+            and state.pending_fire == nil and state.verify == nil
+            and cooldown_left() == 0 then
             local since = state.last_fire_frame == 0 and 999999
                 or (state.frames - state.last_fire_frame)
             if since > 600 then
@@ -1264,32 +1397,12 @@ re.on_frame(function()
             local reason = state.pending_fire
             state.pending_fire = nil
             state.pending_kind = nil
-            if state.last_req_reason ~= reason
-                or (state.frames - (state.last_req_frame or 0)) > 60 then
-                state.last_req_reason = reason
-                state.last_req_frame = state.frames
-                trace("request: " .. tostring(reason))
-            end
-
-            local left = cooldown_left()
-
-            local last = state.reason_last[reason]
-            local since = last ~= nil and (state.frames - last) or 999999
-            if since < 180 then
-                state.last_result = string.format("%s debounced (%d s)", reason,
-                    math.floor(since / 60))
-                trace("debounced: " .. tostring(reason))
-            elseif left > 0 then
-                state.last_result = string.format("held by cooldown: %d s left", left)
-                trace("held by cooldown: " .. tostring(reason))
+            if state.verify ~= nil then
+                -- the last fire has not landed yet; the trigger stays armed and
+                -- asks again on the next frame
+                state.last_result = "waiting for the last fire to land"
             else
-                -- latch only on a real fire, otherwise "wait for the Palico to
-                -- act once" consumes the trigger forever
-                if fire(reason) then
-                    state.reason_last[reason] = state.frames
-                    if reason == "first hit" then state.first_hit_done = true end
-                    if reason == "quest start" then state.quest_start_pending = false end
-                end
+                handle_request(reason)
             end
         end
 
@@ -1299,9 +1412,9 @@ re.on_frame(function()
             local monv = state.monster_state == true and "damaged"
                 or (state.monster_state == false and "full" or "?")
             trace(string.format(
-                "status: %s | captures=%d buff=%s monster=%s fires=%d last=%s | blocked=%d | trap=%s stun=%s para=%s",
+                "status: %s | captures=%d buff=%s monster=%s fires=%d ok=%d last=%s | blocked=%d | trap=%s stun=%s para=%s",
                 tostring(state.hook_note), state.captures, buffv, monv,
-                state.fires, tostring(state.last_result),
+                state.fires, state.confirmed, tostring(state.last_result),
                 state.blocked,
                 tostring(state.cond.trapped), tostring(state.cond.stunned),
                 tostring(state.cond.paralyzed)))
@@ -1362,8 +1475,12 @@ local function draw_body()
         end
     end
     local left = cooldown_left()
-    imgui.text(left > 0 and string.format("  next buff in %d s", left)
-        or "  buff ready")
+    if state.verify ~= nil then
+        imgui.text("  waiting for the buff to confirm the last fire")
+    else
+        imgui.text(left > 0 and string.format("  next buff in %d s", left)
+            or "  buff ready")
+    end
     imgui.text("  applies to every trigger below, without exception")
 
     imgui.separator()
