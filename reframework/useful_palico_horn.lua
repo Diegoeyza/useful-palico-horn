@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.3.4"
+local VERSION = "1.4.0"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -43,7 +43,7 @@ local state = {
         hotkey = "599",          -- "." on this build: unused by the game
         min_interval_sec = 0.5,
         auto_when_down = false,
-        block_ai_use = false,
+        block_ai_use = true,
         use_base_cooldown = true,
         global_cooldown_sec = 480,
         fire_on_first_hit = false,
@@ -859,7 +859,15 @@ local function install()
                             if id ~= state.last_id then
                                 state.last_id = id
                                 trace("action id " .. tostring(id)
-                                    .. " (ours=" .. tostring(state.frames <= state.allow_until) .. ")")
+                                    .. " (ours=" .. tostring(state.firing) .. ")")
+                            end
+
+                            if id == HORN_ACTION and not state.firing
+                                and state.cfg.block_ai_use and state.cfg.enabled then
+                                state.blocked = state.blocked + 1
+                                state.last_result = "blocked the Palico's own horn request"
+                                trace("blocked AI horn request #" .. state.blocked)
+                                return sdk.PreHookResult.SKIP_ORIGINAL
                             end
                         end
                     end,
@@ -1036,9 +1044,11 @@ local function fire(reason)
     end
 
     local self = safe(sdk.to_managed_object, state.self)
+    state.firing = true
     local ok, ret = pcall(function()
         return state.method:call(self, HORN_ACTION, state.append)
     end)
+    state.firing = false
 
     state.fires = state.fires + 1
     state.allow_use = (state.allow_use or 0) + 1
