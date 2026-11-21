@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.0"
+local VERSION = "1.6.1"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -71,6 +71,7 @@ local state = {
     tool_manager = nil,
     tool_values = nil,
     tool_self = nil,
+    desire_self = nil,
     tool_fields = nil,
     tool_dumped = false,
     tool_type = nil,
@@ -1032,7 +1033,11 @@ local function install_tool_hook()
             local ok = pcall(function()
                 sdk.hook(m, function(args)
                     if args ~= nil and args[2] ~= nil then
-                        state.tool_self = args[2]
+                        if name == "useOtomoTool" then
+                            state.tool_self = args[2]
+                        else
+                            state.desire_self = args[2]
+                        end
                     end
                 end, function(retval) return retval end)
             end)
@@ -1167,6 +1172,9 @@ local function tool_manager()
     local info = field_value(ctl, "_OtomoManagedInfo")
         or getter(ctl, "get_OtomoManagedInfo")
     local char = info and field_value(info, "<Character>k__BackingField")
+    if char == nil then
+        char = walk_find(ctl, "OtomoCharacter", 2, 120)
+    end
     if char == nil then return nil end
     for _, name in ipairs({
         "_MiniCompUpdater_LateUpdate", "_MiniCompUpdater_AfterMotion",
@@ -1260,7 +1268,15 @@ end
 
 local function tool_scan()
     local obj = horn_tool() or tool_state()
-    if obj == nil then return end
+    if obj == nil then
+        if not state.tool_missing then
+            state.tool_missing = true
+            trace("horn tool: not resolved (manager="
+                .. tostring(state.tool_manager ~= nil)
+                .. " use_capture=" .. tostring(state.tool_self ~= nil) .. ")")
+        end
+        return
+    end
     if not state.tool_dumped then
         state.tool_dumped = true
         trace_object("tool object", obj)
@@ -1931,9 +1947,11 @@ local function release_world(why)
     state.pending_kind = nil
     state.dump_at = nil
     state.tool_self = nil
+    state.desire_self = nil
     state.tool_manager = nil
     state.tool_fields = nil
     state.tool_dumped = false
+    state.tool_missing = nil
     state.action_self = nil
     state.action_dumped = false
     state.diag_sig = nil
