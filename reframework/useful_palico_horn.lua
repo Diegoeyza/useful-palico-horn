@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.6.4"
+local VERSION = "1.6.5"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -79,6 +79,8 @@ local state = {
     action_self = nil,
     action_dumped = false,
     type_forced = false,
+    type_before = false,
+    type_after = false,
     method = nil,
     method_desc = nil,
 
@@ -1078,9 +1080,40 @@ local function trace_object(label, obj)
     trace(label .. " fields: " .. table.concat(parts, " "))
 end
 
--- PalicoMod forces the action's `_Type` field to 1 in useHornActionDoEnter.
+
 -- That field selects which horn the action plays; without it the forced
 -- cUseHorn can play a horn that does not apply Attack Up.
+-- Read a Nullable<T> field as { hasValue, value } using the native accessors.
+local function nullable_state(obj, name)
+    local f = field_descriptor(obj, name)
+    if f == nil then return nil end
+    local dt = safe(function() return f:get_type() end)
+    local v = dt and safe(function() return f:get_data(obj) end) or nil
+    if v == nil then return nil end
+    return safe(function() return sdk.get_native_field(v, dt, "hasValue") end),
+        safe(function() return sdk.get_native_field(v, dt, "value") end)
+end
+
+local function trace_horn_enum()
+    local td = safe(sdk.find_type_definition, "app.OtomoDef.OTOMO_TOOL_HORN_TYPE")
+    if td == nil then
+        trace("horn type enum: not found")
+        return
+    end
+    local parts = {}
+    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+        if safe(function() return f:is_static() end) then
+            local n = safe(function() return f:get_name() end)
+            local v = safe(function() return f:get_data(nil) end)
+            if n ~= nil and type(v) == "number" then
+                parts[#parts + 1] = n .. "=" .. tostring(v)
+            end
+        end
+    end
+    trace("horn type enum: " .. table.concat(parts, " "))
+end
+
+-- PalicoMod forces the action's `_Type` field to 1 in useHornActionDoEnter.
 local function install_action_hook()
     if state.action_hook ~= "not tried" then return end
     local td = safe(sdk.find_type_definition, "app.OtomoCommonAction.cUseHorn")
@@ -1126,6 +1159,7 @@ local function install_action_hook()
         depth2 = depth2 + 1
     end
     trace("cUseHorn enter methods: " .. table.concat(names, " "))
+    trace_horn_enum()
 
     local direct = safe(function() return td:get_method("doEnter()") end)
     if direct ~= nil then list[#list + 1] = direct end
@@ -1145,6 +1179,11 @@ local function install_action_hook()
                     local obj = safe(sdk.to_managed_object, args[2])
                     local f = obj and field_descriptor(obj, "_Type")
                     if f ~= nil then
+                        local hv0, v0 = nullable_state(obj, "_Type")
+                        if not state.type_before then
+                            state.type_before = true
+                            trace("_Type before: " .. tostring(hv0) .. "/" .. tostring(v0))
+                        end
                         local how = nil
                         -- 1) managed object field setter
                         if safe(function() obj:set_field("_Type", 1) return true end) == true then
@@ -1187,11 +1226,22 @@ local function install_action_hook()
                         end
                         if not state.type_forced then
                             state.type_forced = true
-                            trace("forced horn _Type=1: " .. tostring(how or "failed"))
+                            local hv1, v1 = nullable_state(obj, "_Type")
+                            trace("forced horn _Type=1: " .. tostring(how or "failed")
+                                .. " -> " .. tostring(hv1) .. "/" .. tostring(v1))
                         end
                     end
                 end
-            end, function(retval) return retval end)
+            end, function(retval)
+                if state.verify ~= nil and not state.type_after then
+                    state.type_after = true
+                    local obj = safe(sdk.to_managed_object, state.action_self)
+                    local hv, v = nil, nil
+                    if obj ~= nil then hv, v = nullable_state(obj, "_Type") end
+                    trace("_Type after doEnter: " .. tostring(hv) .. "/" .. tostring(v))
+                end
+                return retval
+            end)
         end)
         if hooked then ok = true end
     end
@@ -2046,6 +2096,8 @@ local function release_world(why)
     state.action_self = nil
     state.action_dumped = false
     state.type_forced = false
+    state.type_before = false
+    state.type_after = false
     state.diag_sig = nil
     pcall(function() collectgarbage("collect") end)
     trace("world released (" .. tostring(why) .. ")")
