@@ -28,7 +28,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.3.2"
+local VERSION = "1.3.3"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -93,6 +93,7 @@ local state = {
     blocked = 0,
     use_hook = "not tried",
     ids = {},
+    last_id = nil,
     last_req_reason = nil,
     last_req_frame = nil,
     reason_last = {},        -- per-trigger debounce
@@ -853,6 +854,11 @@ local function install()
                                 trace("action id " .. tostring(id) .. " first seen")
                             end
                             state.ids[id] = state.ids[id] + 1
+                            if id ~= state.last_id then
+                                state.last_id = id
+                                trace("action id " .. tostring(id)
+                                    .. " (ours=" .. tostring(state.frames <= state.allow_until) .. ")")
+                            end
                         end
                     end,
                     function(retval) return retval end)
