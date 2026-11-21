@@ -32,7 +32,7 @@
   getter, a plain method and a field, and the trace records which one worked.
 ]]
 
-local VERSION = "1.4.8"
+local VERSION = "1.4.9"
 local TAG = "[UsefulPalicoHorn] "
 
 local CONFIG_FILE = "useful_palico_horn.json"
@@ -111,6 +111,7 @@ local state = {
     dump_requested = false,
     dump_buff_requested = false,
     dump_at = nil,
+    dump_seq = 0,
     monster_state = nil,     -- true = damaged, false = full hp, nil = unknown
     monster_hp = nil,
     monster_max = nil,
@@ -1419,8 +1420,10 @@ function dump_buff_state(reason)
         }
     end
 
-    pcall(json.dump_file, "useful_palico_horn_buff.json", out)
-    trace("buff state dumped (" .. tostring(reason) .. ")")
+    state.dump_seq = (state.dump_seq or 0) + 1
+    local file = "useful_palico_horn_buff_" .. state.dump_seq .. ".json"
+    pcall(json.dump_file, file, out)
+    trace("buff state dumped (" .. tostring(reason) .. ") -> " .. file)
 end
 
 local function dump_obj(label, obj)

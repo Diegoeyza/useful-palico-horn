@@ -1,5 +1,16 @@
 # Changelog
 
+## Useful Palico Horn 1.4.9 — 2026-11-20 (diagnostic)
+
+- Dumps are now numbered (`useful_palico_horn_buff_1.json`, `_2.json`, ...) so the
+  baseline and the buff-up snapshot can be compared.
+- The snapshot also covers `get_HunterStatus()` and its `_AttackPower`,
+  `_DefencePower`, `_ItemBuff`, `_MealEffect`, `_BadConditions`,
+  `get_HunterEffect()` and `get_StatusWatcher()`.
+- `getMasterPlayer()` -> `cPlayerManageInfo`; the status getter on
+  `HunterCharacter` is `get_HunterStatus` (not `get_Status`).
+
+## Useful Palico Horn 1.4.8 — 2026-11-20 (diagnostic)
 ## Useful Palico Horn 1.4.8 — 2026-11-20 (diagnostic)
 
 - The buff has no HUD icon in game (only a red VFX), so the dump now runs
